@@ -1,3 +1,9 @@
+"""
+stock_app.py
+台股投資分析
+注意：本工具僅供研究、紀律化分析與交易前檢核，不構成投資建議。
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -11,7 +17,7 @@ import requests
 import numpy as np
 import pandas as pd
 import streamlit as st
-
+import yfinance as yf
 
 # =========================
 # 基本設定
@@ -236,8 +242,40 @@ def load_ticker_info(ticker_symbol: str) -> Dict:
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
 def load_fast_info(ticker_symbol: str) -> Dict:
-    """FinMind 版備援欄位；目前不強依賴。"""
-    return {}
+    stock_id = normalize_tw_ticker(ticker_symbol)
+    if stock_id == "TAIEX":
+        return {}
+
+    yf_symbol = f"{stock_id}.TW"
+    out = {}
+
+    try:
+        t = yf.Ticker(yf_symbol)
+
+        try:
+            info = t.get_info() or {}
+        except Exception:
+            info = t.info or {}
+
+        try:
+            fi = t.fast_info or {}
+        except Exception:
+            fi = {}
+
+        out.update({
+            "trailingPE": safe_float(info.get("trailingPE")),
+            "trailingEps": safe_float(info.get("trailingEps")),
+            "dividendYield": safe_float(info.get("dividendYield")),
+            "marketCap": safe_float(info.get("marketCap")),
+            "shares": safe_float(info.get("sharesOutstanding")),
+            "beta": safe_float(info.get("beta")),
+            "market_cap": safe_float(fi.get("market_cap")),
+        })
+
+    except Exception:
+        pass
+
+    return out
 
 
 def dividend_yield_pct(info: Dict, last_close: float = np.nan) -> float:
@@ -267,35 +305,50 @@ def dividend_yield_pct(info: Dict, last_close: float = np.nan) -> float:
 
 
 def derive_fundamental_metrics(info: Dict, fast_info: Dict, last_close: float, fin_table: Optional[pd.DataFrame] = None) -> Dict:
-    """整合 info、fast_info 與財報表，盡量補齊 PE/EPS/殖利率/市值/Beta。"""
     last_close = safe_float(last_close)
+
+    pe = safe_float(info.get("trailingPE"))
+    if pd.isna(pe) or pe <= 0:
+        pe = safe_float(fast_info.get("trailingPE"))
+
+    eps = safe_float(info.get("trailingEps"))
+    if pd.isna(eps) or eps == 0:
+        eps = safe_float(fast_info.get("trailingEps"))
+
     shares = safe_float(info.get("sharesOutstanding"))
     if pd.isna(shares):
         shares = safe_float(fast_info.get("shares"))
 
-    eps = safe_float(info.get("trailingEps"))
-    # 若 EPS 空白，嘗試用最近四季淨利 / 股數估算 TTM EPS
     if (pd.isna(eps) or eps == 0) and fin_table is not None and not fin_table.empty and "淨利(億)" in fin_table.columns and not pd.isna(shares) and shares > 0:
         recent_net_income = fin_table["淨利(億)"].dropna().tail(4).sum() * 1e8
         if recent_net_income != 0:
             eps = recent_net_income / shares
 
-    pe = safe_float(info.get("trailingPE"))
     if (pd.isna(pe) or pe <= 0) and not pd.isna(last_close) and not pd.isna(eps) and eps > 0:
         pe = last_close / eps
 
+    dividend_yield = dividend_yield_pct(info, last_close)
+    if pd.isna(dividend_yield):
+        dividend_yield = dividend_yield_pct(fast_info, last_close)
+
     market_cap = safe_float(info.get("marketCap"))
+    if pd.isna(market_cap):
+        market_cap = safe_float(fast_info.get("marketCap"))
     if pd.isna(market_cap):
         market_cap = safe_float(fast_info.get("market_cap"))
     if pd.isna(market_cap) and not pd.isna(last_close) and not pd.isna(shares) and shares > 0:
         market_cap = last_close * shares
 
+    beta = safe_float(info.get("beta"))
+    if pd.isna(beta):
+        beta = safe_float(fast_info.get("beta"))
+
     return {
         "pe": pe,
         "eps": eps,
-        "dividend_yield_pct": dividend_yield_pct(info, last_close),
+        "dividend_yield_pct": dividend_yield,
         "market_cap": market_cap,
-        "beta": safe_float(info.get("beta")),
+        "beta": beta,
     }
 
 
@@ -1163,8 +1216,7 @@ if analyze:
             f3.metric("殖利率", format_number(fund["dividend_yield_pct"], 2, "%"))
             f4.metric("市值", format_large_twd(fund["market_cap"]))
             f5.metric("Beta", format_number(fund["beta"], 2))
-            st.caption("PE/殖利率優先使用 FinMind 的 TaiwanStockPER；EPS、市值若 FinMind 欄位不足會顯示空白。Beta 會用本分析期間相對加權指數 TAIEX 的日報酬粗估。")
-
+            st.caption("PE、殖利率優先使用 FinMind；若 FinMind 無資料，則以 yfinance 補 PE、EPS、殖利率、市值與 Beta。Beta 若仍空白，會用本分析期間相對加權指數 TAIEX 的日報酬粗估。")
             if fin_table.empty:
                 st.info("此股票目前無法從 FinMind 取得完整季財務資料。")
             else:
