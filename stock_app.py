@@ -1033,10 +1033,10 @@ if analyze:
             st.info(f"綜合評分：{score['score']}｜{score['label']}")
 
         c1, c2, c3, c4, c5, c6 = st.columns(6)
+
         price_change = safe_float(last["Close"] - prev["Close"])
         price_change_pct = safe_float(last["Return_1D"] * 100)
-        arrow = "↑" if price_change >= 0 else "↓"
-        # ===== 台股漲跌顯示 =====
+
         if price_change >= 0:
             color = "#d60000"   # 台股紅漲
             arrow = "↑"
@@ -1045,43 +1045,31 @@ if analyze:
             arrow = "↓"
 
         with c1:
-            st.markdown(
-                f"""
-                <div style="margin-bottom:10px;">
+            st.markdown(f"""
+        <div style="margin-bottom:10px;">
+            <div style="font-size:18px; color:#666; font-weight:600;">
+                收盤價
+            </div>
 
-                    <div style="
-                        font-size:18px;
-                        color:#666;
-                        font-weight:600;
-                    ">
-                        收盤價
-                    </div>
+            <div style="font-size:52px; font-weight:700; line-height:1.1;">
+                {last["Close"]:,.2f}
+            </div>
 
-                    <div style="
-                        font-size:52px;
-                        font-weight:700;
-                        line-height:1.1;
-                    ">
-                        {last["Close"]:,.2f}
-                    </div>
+            <div style="
+                display:inline-block;
+                margin-top:8px;
+                padding:6px 14px;
+                border-radius:16px;
+                background-color:rgba(0,0,0,0.05);
+                color:{color};
+                font-size:22px;
+                font-weight:700;
+            ">
+                {price_change:+,.2f} ({price_change_pct:+.2f}%) {arrow}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-                    <div style="
-                        display:inline-block;
-                        margin-top:8px;
-                        padding:6px 14px;
-                        border-radius:16px;
-                        background-color:rgba(0,0,0,0.05);
-                        color:{color};
-                        font-size:22px;
-                        font-weight:700;
-                    ">
-                        {price_change:+,.2f} ({price_change_pct:+.2f}%) {arrow}
-                    </div>
-
-                </div>
-                """,
-                unsafe_allow_html=True
-            )  
         c2.metric("RSI14", format_number(last["RSI14"], 1))
         c3.metric("MACD柱", format_number(last["MACD_HIST"], 2))
         c4.metric("20日量比", format_number(last["Volume_Ratio"], 2))
