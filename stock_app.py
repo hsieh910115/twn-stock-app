@@ -102,9 +102,6 @@ def load_price_data(ticker_symbol: str, start_date: str, end_date: str) -> Tuple
         try:
             ticker = yf.Ticker(symbol)
             df = ticker.history(start=warmup_start, end=end_plus_one, auto_adjust=False)
-            # 永遠額外補抓最近 10 天，避免不同資料區間導致最新日不一致
-            recent_df = ticker.history(period="10d", auto_adjust=False)
-            df = pd.concat([df, recent_df])
             if not df.empty:
                 df = df.copy()
                 df.index = pd.to_datetime(df.index).tz_localize(None)
