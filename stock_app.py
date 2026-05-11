@@ -1038,38 +1038,18 @@ if analyze:
         price_change_pct = safe_float(last["Return_1D"] * 100)
 
         if price_change >= 0:
-            color = "#d60000"   # 台股紅漲
             arrow = "↑"
+            delta_color = "normal"   # 台股：漲 = 紅
         else:
-            color = "#00a000"   # 台股綠跌
             arrow = "↓"
+            delta_color = "inverse"  # 台股：跌 = 綠
 
-        with c1:
-            st.markdown(f"""
-        <div style="margin-bottom:10px;">
-            <div style="font-size:18px; color:#666; font-weight:600;">
-                收盤價
-            </div>
-
-            <div style="font-size:52px; font-weight:700; line-height:1.1;">
-                {last["Close"]:,.2f}
-            </div>
-
-            <div style="
-                display:inline-block;
-                margin-top:8px;
-                padding:6px 14px;
-                border-radius:16px;
-                background-color:rgba(0,0,0,0.05);
-                color:{color};
-                font-size:22px;
-                font-weight:700;
-            ">
-                {price_change:+,.2f} ({price_change_pct:+.2f}%) {arrow}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
+        c1.metric(
+            "收盤價",
+            format_number(last["Close"], 2),
+            delta=f"{price_change:+,.2f} ({price_change_pct:+.2f}%) {arrow}",
+            delta_color=delta_color,
+        )
         c2.metric("RSI14", format_number(last["RSI14"], 1))
         c3.metric("MACD柱", format_number(last["MACD_HIST"], 2))
         c4.metric("20日量比", format_number(last["Volume_Ratio"], 2))
