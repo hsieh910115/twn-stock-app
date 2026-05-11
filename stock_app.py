@@ -1002,8 +1002,9 @@ if analyze:
             fast_info = load_fast_info(resolved_ticker)
             stmt = load_financials(resolved_ticker)
             full_df = calculate_indicators(raw_df)
-            df = trim_to_user_period(full_df, start_date).dropna(subset=["RSI14", "MACD_HIST"])
-
+            df = trim_to_user_period(full_df, start_date).dropna(
+                subset=["Open", "High", "Low", "Close", "RSI14", "MACD_HIST"]
+            )
         if df.empty or len(df) < 20:
             st.error("資料量不足，無法計算完整指標。請增加月份、改用更長期間，或確認股票代碼。")
             st.stop()
