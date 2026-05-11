@@ -1035,12 +1035,16 @@ if analyze:
         c1, c2, c3, c4, c5, c6 = st.columns(6)
         price_change = safe_float(last["Close"] - prev["Close"])
         price_change_pct = safe_float(last["Return_1D"] * 100)
-        arrow = "↑" if price_change >= 0 else "↓"
+        if price_change >= 0:
+            delta_color = "normal"   # 台股：漲=紅
+        else:
+            delta_color = "inverse"  # 台股：跌=綠
+
         c1.metric(
             "收盤價",
             format_number(last["Close"], 2),
-            delta=f"{arrow} {price_change:+,.2f} ({price_change_pct:+.2f}%)",
-            delta_color="inverse",
+            delta=f"{price_change:+,.2f} ({price_change_pct:+.2f}%)",
+            delta_color=delta_color,
         )
         c2.metric("RSI14", format_number(last["RSI14"], 1))
         c3.metric("MACD柱", format_number(last["MACD_HIST"], 2))
