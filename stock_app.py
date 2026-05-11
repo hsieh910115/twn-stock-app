@@ -1208,8 +1208,6 @@ if analyze:
         with tab3:
             fin_table = build_financial_table(stmt, resolved_ticker)
             fund = derive_fundamental_metrics(info, fast_info, last["Close"], fin_table)
-            if pd.isna(fund.get("beta")):
-                fund["beta"] = estimate_beta_vs_twii(df)
             # ===== 基本面資料 =====
             pe = safe_float(info.get("trailingPE"))
 
