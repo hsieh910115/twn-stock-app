@@ -84,23 +84,23 @@ def format_large_twd(value) -> str:
 
 
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
-def load_price_data(ticker_symbol: str, start_date: str, end_date: str) -> Tuple[pd.DataFrame, str]:
+def load_price_data(ticker_symbol: str, total_days: int) -> Tuple[pd.DataFrame, str]:
     """抓取股價資料。上市用 .TW，若無資料自動嘗試 .TWO。
 
-    重要：即使使用者只分析 0 年 6 個月，也會往前多抓一段 warm-up 資料，
-    讓 MA60、MA120、MA240、52週高低點等長週期指標可以正常計算。
-    後續畫圖與回測仍會再切回使用者指定的起始日期。
+    重要：抓取足夠長的 warmup 資料，讓長週期指標正常計算。
     """
     candidates = [ticker_symbol]
     if ticker_symbol.endswith(".TW"):
         candidates.append(ticker_symbol.replace(".TW", ".TWO"))
 
     last_error = ""
-    warmup_start = (pd.to_datetime(start_date) - pd.Timedelta(days=420)).strftime("%Y-%m-%d")
-    end_plus_one = (pd.to_datetime(end_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    # 預估一個夠早的起始點：今日往回推 total_days 再多加 450 天 warmup
+    start_date = (datetime.now() - timedelta(days=total_days + 450)).strftime("%Y-%m-%d")
+    
     for symbol in candidates:
         try:
-            df = yf.Ticker(symbol).history(start=warmup_start, end=end_plus_one, auto_adjust=False)
+            # 不設定 end，讓 yfinance 抓到最新
+            df = yf.Ticker(symbol).history(start=start_date, auto_adjust=False)
             if not df.empty:
                 df = df.copy()
                 df.index = pd.to_datetime(df.index).tz_localize(None)
@@ -111,14 +111,11 @@ def load_price_data(ticker_symbol: str, start_date: str, end_date: str) -> Tuple
     raise RuntimeError(f"無法取得 {ticker_symbol} 股價資料。{last_error}")
 
 
-def period_to_dates(years: int, months: int) -> Tuple[str, str]:
-    """把側欄的幾年幾個月轉成 yfinance 可用的起訖日期。"""
+def period_to_days(years: int, months: int) -> int:
+    """把側欄的幾年幾個月轉成總天數。"""
     years = max(int(years), 0)
     months = max(int(months), 0)
-    total_days = max(years * 365 + months * 30, 30)
-    end = datetime.now().date()
-    start = end - timedelta(days=total_days)
-    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+    return max(years * 365 + months * 30, 30)
 
 
 def trim_to_user_period(df: pd.DataFrame, start_date: str) -> pd.DataFrame:
@@ -226,10 +223,10 @@ def derive_fundamental_metrics(info: Dict, fast_info: Dict, last_close: float, f
     }
 
 
-def estimate_beta_vs_twii(stock_df: pd.DataFrame, start_date: str, end_date: str) -> float:
+def estimate_beta_vs_twii(stock_df: pd.DataFrame, total_days: int) -> float:
     """當 Yahoo beta 空白時，用近期間股價報酬相對加權指數 ^TWII 粗估 Beta。"""
     try:
-        market_raw, _ = load_price_data("^TWII", start_date=start_date, end_date=end_date)
+        market_raw, _ = load_price_data("^TWII", total_days=total_days)
         market = calculate_indicators(market_raw) if "Return_1D" not in market_raw.columns else market_raw
         s_ret = stock_df["Close"].pct_change().rename("stock")
         m_ret = market["Close"].pct_change().rename("market")
@@ -977,9 +974,12 @@ with st.sidebar:
         period_months = st.number_input("月", min_value=0, max_value=11, value=0, step=1)
     if period_years == 0 and period_months == 0:
         period_months = 6
-    start_date, end_date = period_to_dates(period_years, period_months)
+    total_days = period_to_days(period_years, period_months)
     st.caption(f"目前分析區間：{period_years} 年 {period_months} 個月")
-    st.caption(f"回測區間：{start_date} ～ {end_date}")
+    # 這裡的 start/end 僅供顯示參考，實際會以資料最新日往回推
+    ref_end = datetime.now().date()
+    ref_start = ref_end - timedelta(days=total_days)
+    st.caption(f"回測參考區間：{ref_start} ～ {ref_end}")
     mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=False)
     capital = st.number_input("帳戶資金（元）", min_value=1, value=100000, step=10000)
     risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=1.0, step=0.1, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
@@ -997,12 +997,23 @@ if analyze:
     ticker_input = normalize_tw_ticker(raw_code)
     try:
         with st.spinner("正在取得最新股價與財務資料..."):
-            raw_df, resolved_ticker = load_price_data(ticker_input, start_date=start_date, end_date=end_date)
+            # 1. 抓取包含 warmup 的原始資料
+            raw_df, resolved_ticker = load_price_data(ticker_input, total_days=total_days)
+            
+            # 2. 找出資料中的最新日期，並以此往回計算分析起始日
+            actual_end = raw_df.index[-1]
+            actual_start = actual_end - timedelta(days=total_days)
+            actual_start_str = actual_start.strftime("%Y-%m-%d")
+
             info = load_ticker_info(resolved_ticker)
             fast_info = load_fast_info(resolved_ticker)
             stmt = load_financials(resolved_ticker)
+            
+            # 3. 計算指標（使用完整 raw_df 以確保 MA/RSI 正確）
             full_df = calculate_indicators(raw_df)
-            df = trim_to_user_period(full_df, start_date).dropna(
+            
+            # 4. 裁切回使用者要求的實際區間
+            df = trim_to_user_period(full_df, actual_start_str).dropna(
                 subset=["Open", "High", "Low", "Close", "RSI14", "MACD_HIST"]
             )
         if df.empty or len(df) < 20:
@@ -1100,7 +1111,7 @@ if analyze:
             fin_table = build_financial_table(stmt, resolved_ticker)
             fund = derive_fundamental_metrics(info, fast_info, last["Close"], fin_table)
             if pd.isna(fund.get("beta")):
-                fund["beta"] = estimate_beta_vs_twii(df, start_date, end_date)
+                fund["beta"] = estimate_beta_vs_twii(df, total_days=total_days)
             f1, f2, f3, f4, f5 = st.columns(5)
             f1.metric("本益比 PE", format_number(fund["pe"], 2))
             f2.metric("EPS", format_number(fund["eps"], 2))
@@ -1238,10 +1249,13 @@ if run_watchlist:
     progress = st.progress(0)
     for i, code in enumerate(codes):
         try:
-            raw_df, resolved = load_price_data(normalize_tw_ticker(code), start_date=start_date, end_date=end_date)
+            raw_df, resolved = load_price_data(normalize_tw_ticker(code), total_days=total_days)
+            actual_end = raw_df.index[-1]
+            actual_start_str = (actual_end - timedelta(days=total_days)).strftime("%Y-%m-%d")
+            
             info = load_ticker_info(resolved)
             full_df = calculate_indicators(raw_df)
-            df = trim_to_user_period(full_df, start_date).dropna(subset=["RSI14", "MACD_HIST"])
+            df = trim_to_user_period(full_df, actual_start_str).dropna(subset=["RSI14", "MACD_HIST"])
             if df.empty or len(df) < 20:
                 continue
             last = df.iloc[-1]
