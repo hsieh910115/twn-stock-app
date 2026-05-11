@@ -1052,7 +1052,170 @@ def risk_plan(last: pd.Series, capital: float, risk_pct: float) -> Dict:
         "risk_per_share": risk_per_share,
     }
 
+def strategy_execution_advice(df: pd.DataFrame, strategy_name: str, params: Optional[Dict] = None) -> Dict:
+    params = params or {}
+    data = df.copy()
+    last = data.iloc[-1]
+    prev = data.iloc[-2]
+    close = safe_float(last["Close"])
 
+    status = "等待進場"
+    action = "目前尚未符合進場條件。"
+    entry = "—"
+    exit_rule = "—"
+    key_level = np.nan
+    distance_pct = np.nan
+    reasons = []
+
+    if strategy_name == "保守均線趨勢｜少交易":
+        short = int(params.get("short_ma", 20))
+        long = int(params.get("long_ma", 60))
+        short_col = f"MA{short}"
+        long_col = f"MA{long}"
+
+        if short_col not in data.columns:
+            data[short_col] = data["Close"].rolling(short).mean()
+        if long_col not in data.columns:
+            data[long_col] = data["Close"].rolling(long).mean()
+
+        last = data.iloc[-1]
+        ma_s = safe_float(last.get(short_col))
+        ma_l = safe_float(last.get(long_col))
+
+        entry = f"收盤價 > MA{short}，且 MA{short} > MA{long}"
+        exit_rule = f"收盤價跌破 MA{short}，或 MA{short} 轉弱低於 MA{long}"
+        key_level = ma_s
+
+        if close > ma_s and ma_s > ma_l:
+            status = "可持有／符合進場條件"
+            action = f"目前已符合策略條件。若尚未進場，可等下一交易日確認未跌破 MA{short} 再考慮進場。"
+        else:
+            action = f"目前尚未符合條件，可等待收盤價重新站上 MA{short}，且 MA{short} 高於 MA{long}。"
+
+        reasons.append(f"現價 {close:.2f}，MA{short}={ma_s:.2f}，MA{long}={ma_l:.2f}")
+
+    elif strategy_name == "長線大波段｜不太操作":
+        short = int(params.get("short_ma", 60))
+        long = int(params.get("long_ma", 120))
+        short_col = f"MA{short}"
+        long_col = f"MA{long}"
+
+        if short_col not in data.columns:
+            data[short_col] = data["Close"].rolling(short).mean()
+        if long_col not in data.columns:
+            data[long_col] = data["Close"].rolling(long).mean()
+
+        last = data.iloc[-1]
+        ma_s = safe_float(last.get(short_col))
+        ma_l = safe_float(last.get(long_col))
+
+        entry = f"收盤價 > MA{short}，且 MA{short} > MA{long}"
+        exit_rule = f"收盤價跌破 MA{short}，或 MA{short} 跌破 MA{long}"
+        key_level = ma_s
+
+        if close > ma_s and ma_s > ma_l:
+            status = "可持有／符合進場條件"
+            action = f"目前符合長線波段條件，可視為持有區；若尚未進場，建議等回測 MA{short} 不破或隔日續強再進。"
+        else:
+            action = f"目前尚未符合長線條件，可等待收盤價站回 MA{short} 且 MA{short} 高於 MA{long}。"
+
+        reasons.append(f"現價 {close:.2f}，MA{short}={ma_s:.2f}，MA{long}={ma_l:.2f}")
+
+    elif strategy_name == "EMA動能｜短線波段":
+        fast = int(params.get("fast_ema", 10))
+        slow = int(params.get("slow_ema", 20))
+        rsi_enter = float(params.get("rsi_enter", 50))
+        rsi_exit = float(params.get("rsi_exit", 45))
+
+        data[f"EMA{fast}"] = data["Close"].ewm(span=fast, adjust=False).mean()
+        data[f"EMA{slow}"] = data["Close"].ewm(span=slow, adjust=False).mean()
+        last = data.iloc[-1]
+
+        ema_f = safe_float(last[f"EMA{fast}"])
+        ema_s = safe_float(last[f"EMA{slow}"])
+        rsi = safe_float(last["RSI14"])
+
+        entry = f"EMA{fast} > EMA{slow}，且 RSI > {rsi_enter}"
+        exit_rule = f"EMA{fast} < EMA{slow}，或 RSI < {rsi_exit}"
+        key_level = ema_s
+
+        if ema_f > ema_s and rsi > rsi_enter:
+            status = "可持有／符合進場條件"
+            action = "目前動能條件成立。若尚未進場，可等下一根K線仍維持 EMA 多頭排列再進。"
+        else:
+            action = f"目前動能尚未完整成立，可等待 EMA{fast} 上穿 EMA{slow} 且 RSI 站上 {rsi_enter}。"
+
+        reasons.append(f"EMA{fast}={ema_f:.2f}，EMA{slow}={ema_s:.2f}，RSI={rsi:.1f}")
+
+    elif strategy_name == "突破追價｜不要錯過飆股":
+        lookback = int(params.get("breakout_n", 20))
+        exit_ma = int(params.get("exit_ma", 20))
+        volume_min = float(params.get("volume_min", 1.2))
+
+        breakout_high = data["Close"].rolling(lookback).max().shift(1).iloc[-1]
+        exit_low = data["Close"].rolling(10).min().shift(1).iloc[-1]
+        ma_exit = data["Close"].rolling(exit_ma).mean().iloc[-1]
+        vol_ratio = safe_float(last["Volume_Ratio"])
+
+        entry = f"收盤價突破近 {lookback} 日高點，且量比 > {volume_min}"
+        exit_rule = f"跌破 MA{exit_ma}，或跌破近 10 日低點"
+        key_level = breakout_high
+
+        if close > breakout_high and vol_ratio >= volume_min:
+            status = "可進場／突破成立"
+            action = "目前已符合突破進場條件。若要執行，應特別設定停損，避免假突破。"
+        else:
+            action = f"目前尚未突破。可等待收盤價突破 {breakout_high:.2f}，且量比大於 {volume_min}。"
+
+        reasons.append(f"現價 {close:.2f}，突破價 {breakout_high:.2f}，量比 {vol_ratio:.2f}")
+        reasons.append(f"出場參考：MA{exit_ma}={ma_exit:.2f}，10日低點={exit_low:.2f}")
+
+    elif strategy_name == "RSI反轉｜頻繁操作搶反彈":
+        rsi_low = float(params.get("rsi_low", 30))
+        rsi_high = float(params.get("rsi_high", 55))
+        rsi = safe_float(last["RSI14"])
+        ma20 = safe_float(last["MA20"])
+
+        entry = f"RSI < {rsi_low}"
+        exit_rule = f"RSI > {rsi_high}，或收盤價站上 MA20"
+        key_level = ma20
+
+        if rsi < rsi_low:
+            status = "可觀察反彈進場"
+            action = "目前 RSI 進入低檔反彈區，但仍需注意是否為下跌趨勢中的弱反彈。"
+        else:
+            action = f"目前 RSI 尚未低於 {rsi_low}，不符合反彈策略進場條件。"
+
+        reasons.append(f"RSI={rsi:.1f}，MA20={ma20:.2f}")
+
+    elif strategy_name == "布林下軌反彈｜有賺就好":
+        bb_lower = safe_float(last["BB_LOWER"])
+        bb_mid = safe_float(last["BB_MID"])
+
+        entry = "收盤價跌破布林下軌"
+        exit_rule = "收盤價回到布林中線"
+        key_level = bb_lower
+
+        if close < bb_lower:
+            status = "可觀察反彈進場"
+            action = "目前已跌破布林下軌，符合均值回歸進場條件，但需避免接到趨勢下跌。"
+        else:
+            action = f"目前尚未跌破布林下軌，可等待價格接近或跌破 {bb_lower:.2f}。"
+
+        reasons.append(f"現價 {close:.2f}，布林下軌={bb_lower:.2f}，布林中線={bb_mid:.2f}")
+
+    if not pd.isna(key_level) and key_level > 0:
+        distance_pct = (close / key_level - 1) * 100
+
+    return {
+        "status": status,
+        "action": action,
+        "entry": entry,
+        "exit_rule": exit_rule,
+        "key_level": key_level,
+        "distance_pct": distance_pct,
+        "reasons": reasons,
+    }
 
 
 def mode_difference_table() -> pd.DataFrame:
@@ -1183,8 +1346,9 @@ if analyze:
         c5.metric("20日年化波動", format_number(last["Volatility_20D"] * 100, 1, "%"))
         c6.metric("目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
 
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["總覽", "技術圖表", "基本面", "風險控管", "簡易回測", "模式差異"])
-
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+            ["總覽", "技術圖表", "基本面", "風險控管", "簡易回測", "策略執行", "模式差異"]
+            )        
         with tab1:
             left, right = st.columns([1, 1])
             with left:
@@ -1362,8 +1526,86 @@ if analyze:
                     - **布林下軌反彈**：適合箱型整理股，跌到區間下緣搶短彈。
                     """)
 
-
         with tab6:
+            st.markdown("#### 策略執行助手")
+            st.info("將回測策略轉換成實際操作條件：現在是否可進場、若尚未進場應等待什麼條件、進場後何時出場。")
+
+            exec_strategy = st.selectbox(
+                "選擇要執行的策略",
+                list(STRATEGY_PRESETS.keys()),
+                index=0,
+                key="exec_strategy",
+            )
+
+            st.caption(
+                f"策略規則：{STRATEGY_PRESETS[exec_strategy]['rule']}｜"
+                f"適用情境：{STRATEGY_PRESETS[exec_strategy]['fit']}"
+            )
+
+            params = {}
+
+            with st.expander("進階：自訂策略參數"):
+                if exec_strategy in ["保守均線趨勢｜少交易", "長線大波段｜不太操作"]:
+                    p1, p2 = st.columns(2)
+                    with p1:
+                        params["short_ma"] = st.number_input("短均線", min_value=3, max_value=240, value=20 if exec_strategy == "保守均線趨勢｜少交易" else 60, step=1)
+                    with p2:
+                        params["long_ma"] = st.number_input("長均線", min_value=5, max_value=300, value=60 if exec_strategy == "保守均線趨勢｜少交易" else 120, step=1)
+
+                elif exec_strategy == "EMA動能｜短線波段":
+                    p1, p2, p3, p4 = st.columns(4)
+                    with p1:
+                        params["fast_ema"] = st.number_input("快 EMA", min_value=3, max_value=60, value=10, step=1)
+                    with p2:
+                        params["slow_ema"] = st.number_input("慢 EMA", min_value=5, max_value=120, value=20, step=1)
+                    with p3:
+                        params["rsi_enter"] = st.number_input("RSI 進場門檻", min_value=1, max_value=99, value=50, step=1)
+                    with p4:
+                        params["rsi_exit"] = st.number_input("RSI 出場門檻", min_value=1, max_value=99, value=45, step=1)
+
+                elif exec_strategy == "突破追價｜不要錯過飆股":
+                    p1, p2, p3 = st.columns(3)
+                    with p1:
+                        params["breakout_n"] = st.number_input("突破天數", min_value=5, max_value=120, value=20, step=1)
+                    with p2:
+                        params["exit_ma"] = st.number_input("出場 MA", min_value=5, max_value=120, value=20, step=1)
+                    with p3:
+                        params["volume_min"] = st.number_input("量比門檻", min_value=0.1, max_value=5.0, value=1.2, step=0.1)
+
+                elif exec_strategy == "RSI反轉｜頻繁操作搶反彈":
+                    p1, p2 = st.columns(2)
+                    with p1:
+                        params["rsi_low"] = st.number_input("RSI 低檔進場", min_value=1, max_value=50, value=30, step=1)
+                    with p2:
+                        params["rsi_high"] = st.number_input("RSI 出場", min_value=40, max_value=99, value=55, step=1)
+
+            advice = strategy_execution_advice(full_df, exec_strategy, params)
+
+            s1, s2, s3, s4 = st.columns(4)
+            s1.metric("目前狀態", advice["status"])
+            s2.metric("現價", format_number(last["Close"], 2))
+            s3.metric("關鍵價位", format_number(advice["key_level"], 2))
+            s4.metric("距離關鍵價位", format_number(advice["distance_pct"], 2, "%"))
+
+            st.markdown("#### 現在該怎麼做")
+            st.success(advice["action"]) if "符合" in advice["status"] or "可" in advice["status"] else st.warning(advice["action"])
+
+            st.markdown("#### 進出場規則")
+            rule_df = pd.DataFrame({
+                "項目": ["進場條件", "出場條件"],
+                "規則": [advice["entry"], advice["exit_rule"]],
+            })
+            st.dataframe(rule_df, hide_index=True, use_container_width=True)
+
+            st.markdown("#### 判斷依據")
+            for r in advice["reasons"]:
+                st.write(f"• {r}")
+
+            st.caption("提醒：此頁只把策略轉成條件式操作規則，不代表預測未來價格，也不構成投資建議。")
+        
+        
+        
+        with tab7:
             st.markdown("#### 短線與長線分析差異")
             st.dataframe(mode_difference_table(), hide_index=True, use_container_width=True)
             if "短線" in mode:
