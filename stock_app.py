@@ -83,49 +83,11 @@ def format_large_twd(value) -> str:
     return f"{value:.0f}"
 
 
-# @st.cache_data(ttl=60 * 10, show_spinner=False)
-# def load_price_data(ticker_symbol: str) -> Tuple[pd.DataFrame, str]:
-#     """抓取股價資料。一律抓取較長區間 (5年)，確保不同區間切換時資料源一致。
-#     使用 yf.download 提高穩定性。
-#     """
-#     candidates = [ticker_symbol]
-#     if ticker_symbol.endswith(".TW"):
-#         candidates.append(ticker_symbol.replace(".TW", ".TWO"))
-
-#     last_error = ""
-#     for symbol in candidates:
-#         try:
-#             # 【關鍵修改】不使用 period="5y"，改用明確的 start 與 end 強制抓到最新進度
-#             end_date = datetime.now() + timedelta(days=1)
-#             start_date = end_date - timedelta(days=365 * 5)
-            
-#             df = yf.download(
-#                 symbol, 
-#                 start=start_date.strftime("%Y-%m-%d"), 
-#                 end=end_date.strftime("%Y-%m-%d"), 
-#                 progress=False, 
-#                 auto_adjust=False
-#             )
-            
-#             if not df.empty:
-#                 df = df.copy()
-#                 # yf.download 回傳的可能是 MultiIndex (如果只有一個代碼也可能)
-#                 if isinstance(df.columns, pd.MultiIndex):
-#                     df.columns = df.columns.get_level_values(0)
-#                 df.index = pd.to_datetime(df.index).tz_localize(None)
-#                 df = df.rename(columns=str.title)
-#                 # 確保數值欄位為 float
-#                 for col in ["Open", "High", "Low", "Close", "Volume"]:
-#                     if col in df.columns:
-#                         df[col] = pd.to_numeric(df[col], errors="coerce")
-#                 return df.dropna(subset=["Close"]), symbol
-#         except Exception as exc:
-#             last_error = str(exc)
-#     raise RuntimeError(f"無法取得 {ticker_symbol} 股價資料。{last_error}")
-
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
-def load_price_data(ticker_symbol: str, period: str = "5y") -> Tuple[pd.DataFrame, str]:
-    """抓取股價資料。上市用 .TW，若無資料自動嘗試 .TWO。"""
+@st.cache_data(ttl=60 * 10, show_spinner=False)
+def load_price_data(ticker_symbol: str) -> Tuple[pd.DataFrame, str]:
+    """抓取股價資料。一律抓取較長區間 (5年)，確保不同區間切換時資料源一致。
+    使用 yf.download 提高穩定性。
+    """
     candidates = [ticker_symbol]
     if ticker_symbol.endswith(".TW"):
         candidates.append(ticker_symbol.replace(".TW", ".TWO"))
@@ -133,15 +95,34 @@ def load_price_data(ticker_symbol: str, period: str = "5y") -> Tuple[pd.DataFram
     last_error = ""
     for symbol in candidates:
         try:
-            df = yf.Ticker(symbol).history(period=period, auto_adjust=False)
+            # 【關鍵修改】不使用 period="5y"，改用明確的 start 與 end 強制抓到最新進度
+            end_date = datetime.now() + timedelta(days=1)
+            start_date = end_date - timedelta(days=365 * 5)
+            
+            df = yf.download(
+                symbol, 
+                start=start_date.strftime("%Y-%m-%d"), 
+                end=end_date.strftime("%Y-%m-%d"), 
+                progress=False, 
+                auto_adjust=False
+            )
+            
             if not df.empty:
                 df = df.copy()
+                # yf.download 回傳的可能是 MultiIndex (如果只有一個代碼也可能)
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
                 df.index = pd.to_datetime(df.index).tz_localize(None)
                 df = df.rename(columns=str.title)
-                return df, symbol
+                # 確保數值欄位為 float
+                for col in ["Open", "High", "Low", "Close", "Volume"]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
+                return df.dropna(subset=["Close"]), symbol
         except Exception as exc:
             last_error = str(exc)
     raise RuntimeError(f"無法取得 {ticker_symbol} 股價資料。{last_error}")
+
 
 def period_to_days(years: int, months: int) -> int:
     """把側欄的幾年幾個月轉成總天數。"""
