@@ -102,7 +102,7 @@ def load_price_data(ticker_symbol: str) -> Tuple[pd.DataFrame, str]:
             df = yf.download(
                 symbol, 
                 start=start_date.strftime("%Y-%m-%d"), 
-                end="2026-05-01", 
+                end="2026-05-20", 
                 progress=False, 
                 auto_adjust=False
             )
