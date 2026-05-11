@@ -554,7 +554,7 @@ def backtest_strategy(df: pd.DataFrame, strategy_name: str, params: Optional[Dic
     if len(data) < 60:
         return {}
 
-    if strategy_name == "保守均線趨勢｜少交易、不要死太慘":
+    if strategy_name == "保守均線趨勢｜少交易":
         short = int(params.get("short_ma", 20))
         long = int(params.get("long_ma", 60))
         if f"MA{short}" not in data.columns:
@@ -650,7 +650,7 @@ def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
             for long in [20, 60, 90, 120, 240]:
                 if short >= long:
                     continue
-                name = "保守均線趨勢｜少交易、不要死太慘" if long <= 90 else "長線大波段｜不太操作"
+                name = "保守均線趨勢｜少交易" if long <= 90 else "長線大波段｜不太操作"
                 bt = backtest_strategy(df, name, {"short_ma": short, "long_ma": long})
                 if not bt:
                     continue
@@ -899,8 +899,8 @@ def mode_difference_table() -> pd.DataFrame:
 # =========================
 # 介面
 # =========================
-st.title("📈 台股專業投資分析終端")
-st.caption("每日可用的分析工具：即時更新股價、技術面、基本面、風險控管、簡易回測與觀察清單。")
+st.title("📈 台股投資分析")
+st.caption("分析工具：即時更新股價、技術面、基本面、風險控管、簡易回測與觀察清單。")
 
 with st.sidebar:
     st.header("股票設定")
@@ -914,16 +914,16 @@ with st.sidebar:
     if period_years == 0 and period_months == 0:
         period_months = 6
     start_date, end_date = period_to_dates(period_years, period_months)
-    st.caption(f"目前分析區間：約 {period_years} 年 {period_months} 個月；支援 0 年 1～11 個月的短線分析。")
-    st.caption(f"回測區間：約 {start_date} ～ {end_date}")
+    st.caption(f"目前分析區間：{period_years} 年 {period_months} 個月")
+    st.caption(f"回測區間：{start_date} ～ {end_date}")
     mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=False)
-    capital = st.number_input("帳戶資金（元）", min_value=10000, value=300000, step=10000)
-    risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=1.0, step=0.1, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 30 萬帳戶最多虧 3000 元。")
+    capital = st.number_input("帳戶資金（元）", min_value=1, value=100000, step=10000)
+    risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=1.0, step=0.1, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
     analyze = st.button("更新並分析", type="primary", use_container_width=True)
     st.divider()
     watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
     run_watchlist = st.button("掃描觀察清單", use_container_width=True)
-    st.caption("資料由 yfinance 取得；台股最新交易日可能因資料源延遲而非今日。")
+    st.caption("可輸入多檔股票製作觀察清單")
 
 # 預設初次也分析，避免使用者打開空白頁
 if not analyze and not run_watchlist:
@@ -1032,8 +1032,8 @@ if analyze:
             if fin_table.empty:
                 st.info("此股票目前無法從 yfinance 取得完整季財務資料。")
             else:
-                st.markdown("#### 近八季財務趨勢")
-                st.caption("優先以 Yahoo timeseries 補足近 8 季；若資料源真的只提供較少季數，會顯示可取得的完整季度。QoQ 是季增率，YoY 是與去年同季相比。")
+                st.markdown("#### 財務趨勢")
+                st.caption("QoQ 是季增率，YoY 是與去年同季相比。")
                 st.dataframe(fin_table.iloc[::-1], use_container_width=True)
                 if "營收QoQ%" in fin_table.columns and not fin_table["營收QoQ%"].dropna().empty:
                     latest_growth = fin_table["營收QoQ%"].dropna().iloc[-1]
@@ -1044,7 +1044,7 @@ if analyze:
 
         with tab4:
             st.markdown("#### 單筆交易風險規劃")
-            st.info(f"目前設定單筆最大風險為 {risk_pct:.2f}%：若帳戶資金為 {capital:,.0f} 元，這筆交易理論上最多承受約 {capital * risk_pct / 100:,.0f} 元損失。")
+            st.info(f"目前設定單筆最大風險為 {risk_pct:.2f}% ; 帳戶資金為 {capital:,.0f} 元，這筆交易理論上最多承受約 {capital * risk_pct / 100:,.0f} 元損失。")
             plan = risk_plan(last, capital, risk_pct)
             if not plan:
                 st.info("ATR 資料不足，暫無法建立風險規劃。")
@@ -1070,7 +1070,7 @@ if analyze:
 
         with tab5:
             st.markdown("#### 多策略回測中心")
-            st.info("這裡不是預測未來，而是檢查：同一段資料期間內，不同交易規則過去表現如何。請優先看最大回撤、Sharpe、持股時間，再看報酬。")
+            st.info("檢查：不同交易規則在過去同一段資料期間內表現如何。")
 
             compare_df = backtest_all_strategies(df)
             if compare_df.empty:
@@ -1122,11 +1122,11 @@ if analyze:
                             file_name=f"optimization_{display_code(resolved_ticker)}_{datetime.now().strftime('%Y%m%d')}.csv",
                             mime="text/csv",
                         )
-                        st.warning("提醒：不要只選第一名。請找 Sharpe 不錯、最大回撤可接受、交易次數不要太少，而且鄰近參數也表現穩定的組合。")
+                        st.warning("提醒：建議可找 Sharpe 不錯、最大回撤可接受、交易次數不要太少，而且鄰近參數也表現穩定的組合。")
 
                 with st.expander("各策略適合什麼情境？"):
                     st.markdown("""
-                    - **保守均線趨勢**：適合想避開大跌、不要死太慘，有賺就好的防守型操作。
+                    - **保守均線趨勢**：適合想避開大跌，有賺就好的防守型操作。
                     - **長線大波段**：適合不想常看盤，以季線、半年線判斷大方向的人。
                     - **EMA動能**：比 MA 更靈敏，適合短線波段與高波動成長股。
                     - **突破追價**：適合不想錯過飆股主升段，但要接受追高與停損。
