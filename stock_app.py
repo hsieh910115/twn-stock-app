@@ -353,18 +353,39 @@ def derive_fundamental_metrics(info: Dict, fast_info: Dict, last_close: float, f
 
 
 def estimate_beta_vs_twii(stock_df: pd.DataFrame) -> float:
-    """當 FinMind beta 空白時，用近期間股價報酬相對加權指數 TAIEX 粗估 Beta。"""
     try:
-        market_raw, _ = load_price_data("TAIEX")
-        market = calculate_indicators(market_raw) if "Return_1D" not in market_raw.columns else market_raw
-        s_ret = stock_df["Close"].pct_change().rename("stock")
-        m_ret = market["Close"].pct_change().rename("market")
+        # 用 0050 當市場代理，比 TAIEX API 穩
+        market_raw, _ = load_price_data("0050")
+
+        s_ret = stock_df["Close"].pct_change()
+        m_ret = market_raw["Close"].pct_change()
+
         aligned = pd.concat([s_ret, m_ret], axis=1).dropna()
-        aligned = aligned[(aligned["stock"].abs() < 0.3) & (aligned["market"].abs() < 0.15)]
-        if len(aligned) < 30 or aligned["market"].var() == 0:
+        aligned.columns = ["stock", "market"]
+
+        # 固定取最近兩年
+        aligned = aligned.tail(252 * 2)
+
+        # 避免極端值
+        aligned = aligned[
+            (aligned["stock"].abs() < 0.3) &
+            (aligned["market"].abs() < 0.15)
+        ]
+
+        if len(aligned) < 60:
             return np.nan
-        return float(aligned["stock"].cov(aligned["market"]) / aligned["market"].var())
-    except Exception:
+
+        market_var = aligned["market"].var()
+
+        if market_var == 0 or pd.isna(market_var):
+            return np.nan
+
+        beta = aligned["stock"].cov(aligned["market"]) / market_var
+
+        return float(beta)
+
+    except Exception as e:
+        print("Beta error:", e)
         return np.nan
 
 
@@ -1222,7 +1243,7 @@ if analyze:
             # Beta 若沒有則自行估算
             beta = safe_float(info.get("beta"))
             if pd.isna(beta):
-                beta = estimate_beta_vs_twii(df)
+                beta = estimate_beta_vs_twii(full_df)
 
             # ===== 顯示 =====
             f1, f2, f3, f4 = st.columns(4)
