@@ -1588,8 +1588,11 @@ if analyze:
             s4.metric("距離關鍵價位", format_number(advice["distance_pct"], 2, "%"))
 
             st.markdown("#### 現在該怎麼做")
-            st.success(advice["action"]) if "符合" in advice["status"] or "可" in advice["status"] else st.warning(advice["action"])
-
+            if "符合" in advice["status"] or "可" in advice["status"]:
+                st.success(advice["action"])
+            else:
+                st.warning(advice["action"])
+            
             st.markdown("#### 進出場規則")
             rule_df = pd.DataFrame({
                 "項目": ["進場條件", "出場條件"],
@@ -1602,9 +1605,7 @@ if analyze:
                 st.write(f"• {r}")
 
             st.caption("提醒：此頁只把策略轉成條件式操作規則，不代表預測未來價格，也不構成投資建議。")
-        
-        
-        
+              
         with tab7:
             st.markdown("#### 短線與長線分析差異")
             st.dataframe(mode_difference_table(), hide_index=True, use_container_width=True)
