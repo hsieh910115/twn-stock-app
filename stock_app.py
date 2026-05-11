@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 
 import altair as alt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 import numpy as np
 import pandas as pd
@@ -165,14 +167,30 @@ def load_fast_info(ticker_symbol: str) -> Dict:
         return {}
 
 
-def dividend_yield_pct(info: Dict) -> float:
-    """Yahoo 有時回傳 0.0105，有時回傳 1.05；統一轉成百分比。"""
-    v = safe_float(info.get("dividendYield"))
-    if pd.isna(v):
-        return np.nan
-    if 0 <= v <= 1:
-        return v * 100
-    return v
+def dividend_yield_pct(info: Dict, last_close: float = np.nan) -> float:
+    """盡量從 Yahoo 欄位推估殖利率，並統一轉成百分比。
+
+    Yahoo 對台股常出現 dividendYield 空白，因此依序嘗試：
+    dividendYield、trailingAnnualDividendYield、fiveYearAvgDividendYield、
+    dividendRate / 股價、trailingAnnualDividendRate / 股價、lastDividendValue / 股價。
+    """
+    for key in ["dividendYield", "trailingAnnualDividendYield"]:
+        v = safe_float(info.get(key))
+        if not pd.isna(v) and v > 0:
+            return v * 100 if v <= 1 else v
+
+    v = safe_float(info.get("fiveYearAvgDividendYield"))
+    if not pd.isna(v) and v > 0:
+        return v
+
+    close = safe_float(last_close)
+    if not pd.isna(close) and close > 0:
+        for key in ["dividendRate", "trailingAnnualDividendRate", "lastDividendValue"]:
+            cash_dividend = safe_float(info.get(key))
+            if not pd.isna(cash_dividend) and cash_dividend > 0:
+                return cash_dividend / close * 100
+
+    return np.nan
 
 
 def derive_fundamental_metrics(info: Dict, fast_info: Dict, last_close: float, fin_table: Optional[pd.DataFrame] = None) -> Dict:
@@ -202,10 +220,26 @@ def derive_fundamental_metrics(info: Dict, fast_info: Dict, last_close: float, f
     return {
         "pe": pe,
         "eps": eps,
-        "dividend_yield_pct": dividend_yield_pct(info),
+        "dividend_yield_pct": dividend_yield_pct(info, last_close),
         "market_cap": market_cap,
         "beta": safe_float(info.get("beta")),
     }
+
+
+def estimate_beta_vs_twii(stock_df: pd.DataFrame, start_date: str, end_date: str) -> float:
+    """當 Yahoo beta 空白時，用近期間股價報酬相對加權指數 ^TWII 粗估 Beta。"""
+    try:
+        market_raw, _ = load_price_data("^TWII", start_date=start_date, end_date=end_date)
+        market = calculate_indicators(market_raw) if "Return_1D" not in market_raw.columns else market_raw
+        s_ret = stock_df["Close"].pct_change().rename("stock")
+        m_ret = market["Close"].pct_change().rename("market")
+        aligned = pd.concat([s_ret, m_ret], axis=1).dropna()
+        aligned = aligned[(aligned["stock"].abs() < 0.3) & (aligned["market"].abs() < 0.15)]
+        if len(aligned) < 30 or aligned["market"].var() == 0:
+            return np.nan
+        return float(aligned["stock"].cov(aligned["market"]) / aligned["market"].var())
+    except Exception:
+        return np.nan
 
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
@@ -732,69 +766,99 @@ def _opt_stats(bt: Dict) -> Dict:
     }
 
 def make_price_chart(df: pd.DataFrame, rows: int = 260):
-    """技術圖表：黑色收盤價、週/月/季/半年/年線固定顏色，布林通道灰色區域。"""
-    plot = df.tail(rows).reset_index()
+    """專業 K 線圖：台股紅漲綠跌、疊加 MA 與布林灰色區域，並附成交量。"""
+    plot = df.tail(rows).copy().reset_index()
     date_col = plot.columns[0]
     plot = plot.rename(columns={date_col: "日期"})
 
-    base = alt.Chart(plot).encode(x=alt.X("日期:T", title="日期"))
-
-    # 布林通道灰色區域：上軌到下軌
-    bb_area = base.mark_area(opacity=0.18, color="#BDBDBD").encode(
-        y=alt.Y("BB_LOWER:Q", title="股價", scale=alt.Scale(zero=False)),
-        y2="BB_UPPER:Q",
-        tooltip=[
-            alt.Tooltip("日期:T", title="日期"),
-            alt.Tooltip("BB_UPPER:Q", title="布林上軌", format=",.2f"),
-            alt.Tooltip("BB_MID:Q", title="布林中線", format=",.2f"),
-            alt.Tooltip("BB_LOWER:Q", title="布林下軌", format=",.2f"),
-        ],
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03,
+        row_heights=[0.72, 0.28],
+        specs=[[{"secondary_y": False}], [{"secondary_y": False}]],
     )
 
-    # 線圖資料長表
-    rename_map = {
-        "Close": "收盤價",
-        "MA5": "週線 MA5",
-        "MA20": "月線 MA20",
-        "MA60": "季線 MA60",
-        "MA120": "半年線 MA120",
-        "MA240": "年線 MA240",
-        "BB_UPPER": "布林上軌",
-        "BB_MID": "布林中線",
-        "BB_LOWER": "布林下軌",
-    }
-    available = [c for c in rename_map if c in plot.columns]
-    long = plot[["日期"] + available].rename(columns=rename_map).melt(
-        id_vars="日期", var_name="線種", value_name="數值"
-    ).dropna()
+    # 布林通道灰色區域：先畫上軌，再用下軌填滿到上軌
+    if {"BB_UPPER", "BB_LOWER", "BB_MID"}.issubset(plot.columns):
+        fig.add_trace(
+            go.Scatter(
+                x=plot["日期"], y=plot["BB_UPPER"], mode="lines",
+                line=dict(color="rgba(120,120,120,0.45)", width=1, dash="dot"),
+                name="布林上軌", hovertemplate="%{x}<br>布林上軌 %{y:,.2f}<extra></extra>",
+            ), row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=plot["日期"], y=plot["BB_LOWER"], mode="lines",
+                line=dict(color="rgba(120,120,120,0.45)", width=1, dash="dot"),
+                fill="tonexty", fillcolor="rgba(160,160,160,0.18)",
+                name="布林下軌", hovertemplate="%{x}<br>布林下軌 %{y:,.2f}<extra></extra>",
+            ), row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=plot["日期"], y=plot["BB_MID"], mode="lines",
+                line=dict(color="rgba(120,120,120,0.8)", width=1.2, dash="dash"),
+                name="布林中線", hovertemplate="%{x}<br>布林中線 %{y:,.2f}<extra></extra>",
+            ), row=1, col=1
+        )
 
-    domain = ["收盤價", "週線 MA5", "月線 MA20", "季線 MA60", "半年線 MA120", "年線 MA240", "布林上軌", "布林中線", "布林下軌"]
-    # 使用者指定：週線黃、月線綠、季線淺藍、半年線深藍、年線棕色、收盤價黑色；布林灰色
-    color_scale = alt.Scale(
-        domain=domain,
-        range=["#111111", "#FFD400", "#00A65A", "#4FC3F7", "#0D47A1", "#8B5A2B", "#8E8E8E", "#8E8E8E", "#8E8E8E"],
+    # K 線：台股慣例，漲紅跌綠
+    fig.add_trace(
+        go.Candlestick(
+            x=plot["日期"],
+            open=plot["Open"], high=plot["High"], low=plot["Low"], close=plot["Close"],
+            name="K線",
+            increasing=dict(line=dict(color="#D32F2F"), fillcolor="#D32F2F"),
+            decreasing=dict(line=dict(color="#00A65A"), fillcolor="#00A65A"),
+            hovertemplate=(
+                "%{x}<br>開盤 %{open:,.2f}<br>最高 %{high:,.2f}"
+                "<br>最低 %{low:,.2f}<br>收盤 %{close:,.2f}<extra></extra>"
+            ),
+        ), row=1, col=1
     )
-    dash_scale = alt.Scale(
-        domain=domain,
-        range=[[1, 0], [2, 2], [4, 2], [4, 2], [4, 2], [4, 2], [8, 4], [4, 4], [8, 4]],
+
+    ma_specs = [
+        ("MA5", "週線 MA5", "#FFD400"),
+        ("MA20", "月線 MA20", "#00A65A"),
+        ("MA60", "季線 MA60", "#4FC3F7"),
+        ("MA120", "半年線 MA120", "#0D47A1"),
+        ("MA240", "年線 MA240", "#8B5A2B"),
+    ]
+    for col, name, color in ma_specs:
+        if col in plot.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=plot["日期"], y=plot[col], mode="lines",
+                    line=dict(color=color, width=1.6),
+                    name=name, hovertemplate=f"%{{x}}<br>{name} %{{y:,.2f}}<extra></extra>",
+                ), row=1, col=1
+            )
+
+    # 成交量：漲紅跌綠
+    volume_colors = np.where(plot["Close"] >= plot["Open"], "#D32F2F", "#00A65A")
+    fig.add_trace(
+        go.Bar(
+            x=plot["日期"], y=plot["Volume"], name="成交量",
+            marker_color=volume_colors, opacity=0.45,
+            hovertemplate="%{x}<br>成交量 %{y:,.0f}<extra></extra>",
+        ), row=2, col=1
     )
-    size_scale = alt.Scale(
-        domain=domain,
-        range=[3.0, 1.6, 1.8, 1.8, 1.8, 1.8, 1.0, 1.2, 1.0],
+
+    fig.update_layout(
+        height=650,
+        hovermode="x unified",
+        margin=dict(l=10, r=10, t=20, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        xaxis_rangeslider_visible=False,
+        template="plotly_white",
     )
-    line = alt.Chart(long).mark_line(interpolate="monotone").encode(
-        x=alt.X("日期:T", title="日期"),
-        y=alt.Y("數值:Q", title="股價", scale=alt.Scale(zero=False)),
-        color=alt.Color("線種:N", scale=color_scale, legend=alt.Legend(title="線種")),
-        strokeDash=alt.StrokeDash("線種:N", scale=dash_scale, legend=None),
-        size=alt.Size("線種:N", scale=size_scale, legend=None),
-        tooltip=[
-            alt.Tooltip("日期:T", title="日期"),
-            alt.Tooltip("線種:N", title="線種"),
-            alt.Tooltip("數值:Q", title="數值", format=",.2f"),
-        ],
-    )
-    return (bb_area + line).properties(height=450)
+    fig.update_yaxes(title_text="股價", row=1, col=1, fixedrange=False)
+    fig.update_yaxes(title_text="成交量", row=2, col=1, fixedrange=False)
+    fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
+    return fig
 
 def make_backtest_chart(bt_df: pd.DataFrame):
     plot = bt_df.reset_index()
@@ -908,7 +972,7 @@ with st.sidebar:
     st.markdown("資料期間")
     pc1, pc2 = st.columns(2)
     with pc1:
-        period_years = st.number_input("年", min_value=0, max_value=30, value=5, step=1)
+        period_years = st.number_input("年", min_value=0, max_value=30, value=1, step=1)
     with pc2:
         period_months = st.number_input("月", min_value=0, max_value=11, value=0, step=1)
     if period_years == 0 and period_months == 0:
@@ -969,7 +1033,15 @@ if analyze:
             st.info(f"綜合評分：{score['score']}｜{score['label']}")
 
         c1, c2, c3, c4, c5, c6 = st.columns(6)
-        c1.metric("收盤價", format_number(last["Close"], 2), delta=f"{last['Return_1D'] * 100:.2f}%")
+        price_change = safe_float(last["Close"] - prev["Close"])
+        price_change_pct = safe_float(last["Return_1D"] * 100)
+        arrow = "↑" if price_change >= 0 else "↓"
+        c1.metric(
+            "收盤價",
+            format_number(last["Close"], 2),
+            delta=f"{arrow} {price_change:+,.2f} ({price_change_pct:+.2f}%)",
+            delta_color="inverse",
+        )
         c2.metric("RSI14", format_number(last["RSI14"], 1))
         c3.metric("MACD柱", format_number(last["MACD_HIST"], 2))
         c4.metric("20日量比", format_number(last["Volume_Ratio"], 2))
@@ -1013,8 +1085,8 @@ if analyze:
             st.dataframe(levels, hide_index=True, use_container_width=True)
 
         with tab2:
-            st.caption("圖例固定：黑色＝收盤價、黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；灰色區域＝布林上下通道，灰線＝布林上中下軌。")
-            st.altair_chart(make_price_chart(df), use_container_width=True)
+            st.caption("K線顏色採台股習慣：紅K＝收漲、綠K＝收跌；黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；灰色區域＝布林上下通道，灰線＝布林上中下軌。")
+            st.plotly_chart(make_price_chart(df), use_container_width=True)
             st.markdown("#### 指標明細")
             indicator_cols = ["Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240", "BB_UPPER", "BB_MID", "BB_LOWER", "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14", "Volume_Ratio", "Return_5D", "Return_20D"]
             st.dataframe(df[indicator_cols].tail(30).iloc[::-1], use_container_width=True)
@@ -1022,12 +1094,15 @@ if analyze:
         with tab3:
             fin_table = build_financial_table(stmt, resolved_ticker)
             fund = derive_fundamental_metrics(info, fast_info, last["Close"], fin_table)
+            if pd.isna(fund.get("beta")):
+                fund["beta"] = estimate_beta_vs_twii(df, start_date, end_date)
             f1, f2, f3, f4, f5 = st.columns(5)
             f1.metric("本益比 PE", format_number(fund["pe"], 2))
             f2.metric("EPS", format_number(fund["eps"], 2))
             f3.metric("殖利率", format_number(fund["dividend_yield_pct"], 2, "%"))
             f4.metric("市值", format_large_twd(fund["market_cap"]))
             f5.metric("Beta", format_number(fund["beta"], 2))
+            st.caption("PE/EPS 為 Yahoo 提供的最近四季 TTM 資料；若 Yahoo 空白，App 會用近四季淨利與股數粗估 EPS，再用最新收盤價 / EPS 估 PE。殖利率優先使用 Yahoo 欄位，空白時用最近股利 / 最新收盤價估算；Beta 若 Yahoo 空白，會用本分析期間相對加權指數 ^TWII 的日報酬粗估。")
 
             if fin_table.empty:
                 st.info("此股票目前無法從 yfinance 取得完整季財務資料。")
@@ -1177,7 +1252,7 @@ if run_watchlist:
                     "RSI": round(last["RSI14"], 1),
                     "量比": round(last["Volume_Ratio"], 2),
                     "PE": round(safe_float(info.get("trailingPE")), 2) if not pd.isna(safe_float(info.get("trailingPE"))) else np.nan,
-                    "殖利率%": round(safe_float(info.get("dividendYield")) * 100, 2) if not pd.isna(safe_float(info.get("dividendYield"))) else np.nan,
+                    "殖利率%": round(dividend_yield_pct(info, last["Close"]), 2) if not pd.isna(dividend_yield_pct(info, last["Close"])) else np.nan,
                     "分數": score["score"],
                     "結論": score["label"],
                 }
