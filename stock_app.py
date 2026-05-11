@@ -83,32 +83,32 @@ def format_large_twd(value) -> str:
     return f"{value:.0f}"
 
 
-@st.cache_data(ttl=60 * 15, show_spinner=False)
-def load_price_data(ticker_symbol: str, total_days: int, today_str: str) -> Tuple[pd.DataFrame, str]:
-    """抓取股價資料。上市用 .TW，若無資料自動嘗試 .TWO。
-
-    重要：抓取足夠長的 warmup 資料，讓長週期指標正常計算。
-    today_str 用來當作 cache key，確保每天（或 TTL 過期後）會抓新資料。
+@st.cache_data(ttl=60 * 10, show_spinner=False)
+def load_price_data(ticker_symbol: str) -> Tuple[pd.DataFrame, str]:
+    """抓取股價資料。一律抓取較長區間 (5年)，確保不同區間切換時資料源一致。
+    使用 yf.download 提高穩定性。
     """
     candidates = [ticker_symbol]
     if ticker_symbol.endswith(".TW"):
         candidates.append(ticker_symbol.replace(".TW", ".TWO"))
 
     last_error = ""
-    # 預估一個夠早的起始點：起始日往回推再加 450 天 warmup
-    start_dt = datetime.now() - timedelta(days=total_days + 450)
-    start_date_str = start_dt.strftime("%Y-%m-%d")
-    # 設定 end 為明天，確保能抓到今天還沒收盤或剛收盤的資料
-    end_date_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    
     for symbol in candidates:
         try:
-            df = yf.Ticker(symbol).history(start=start_date_str, end=end_date_str, auto_adjust=False)
+            # 使用 period='5y' 確保有足夠歷史資料，且不設 end 以獲取最新
+            df = yf.download(symbol, period="5y", progress=False, auto_adjust=False)
             if not df.empty:
                 df = df.copy()
+                # yf.download 回傳的可能是 MultiIndex (如果只有一個代碼也可能)
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
                 df.index = pd.to_datetime(df.index).tz_localize(None)
                 df = df.rename(columns=str.title)
-                return df, symbol
+                # 確保數值欄位為 float
+                for col in ["Open", "High", "Low", "Close", "Volume"]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
+                return df.dropna(subset=["Close"]), symbol
         except Exception as exc:
             last_error = str(exc)
     raise RuntimeError(f"無法取得 {ticker_symbol} 股價資料。{last_error}")
@@ -233,11 +233,10 @@ def derive_fundamental_metrics(info: Dict, fast_info: Dict, last_close: float, f
     }
 
 
-def estimate_beta_vs_twii(stock_df: pd.DataFrame, total_days: int) -> float:
+def estimate_beta_vs_twii(stock_df: pd.DataFrame) -> float:
     """當 Yahoo beta 空白時，用近期間股價報酬相對加權指數 ^TWII 粗估 Beta。"""
     try:
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        market_raw, _ = load_price_data("^TWII", total_days=total_days, today_str=today_str)
+        market_raw, _ = load_price_data("^TWII")
         market = calculate_indicators(market_raw) if "Return_1D" not in market_raw.columns else market_raw
         s_ret = stock_df["Close"].pct_change().rename("stock")
         m_ret = market["Close"].pct_change().rename("market")
@@ -1007,10 +1006,9 @@ if not analyze and not run_watchlist:
 if analyze:
     ticker_input = normalize_tw_ticker(raw_code)
     try:
-        today_str = datetime.now().strftime("%Y-%m-%d")
         with st.spinner("正在取得最新股價與財務資料..."):
-            # 1. 抓取包含 warmup 的原始資料 (加上 today_str 確保快取每日更新)
-            raw_df, resolved_ticker = load_price_data(ticker_input, total_days=total_days, today_str=today_str)
+            # 1. 抓取原始資料 (固定抓 5 年，確保不同區間底層資料一致)
+            raw_df, resolved_ticker = load_price_data(ticker_input)
             
             # 2. 找出資料中的最新日期，並以此往回計算分析起始日
             actual_end = raw_df.index[-1]
@@ -1020,10 +1018,10 @@ if analyze:
             fast_info = load_fast_info(resolved_ticker)
             stmt = load_financials(resolved_ticker)
             
-            # 3. 計算指標（使用完整 raw_df 以確保 MA/RSI 正確）
+            # 3. 計算指標
             full_df = calculate_indicators(raw_df)
             
-            # 4. 裁切回使用者要求的實際區間 (改善後的 trim_to_user_period 會處理非交易日)
+            # 4. 裁切回使用者要求的區間
             df = trim_to_user_period(full_df, actual_start).dropna(
                 subset=["Open", "High", "Low", "Close", "RSI14", "MACD_HIST"]
             )
@@ -1122,7 +1120,7 @@ if analyze:
             fin_table = build_financial_table(stmt, resolved_ticker)
             fund = derive_fundamental_metrics(info, fast_info, last["Close"], fin_table)
             if pd.isna(fund.get("beta")):
-                fund["beta"] = estimate_beta_vs_twii(df, total_days=total_days)
+                fund["beta"] = estimate_beta_vs_twii(df)
             f1, f2, f3, f4, f5 = st.columns(5)
             f1.metric("本益比 PE", format_number(fund["pe"], 2))
             f2.metric("EPS", format_number(fund["eps"], 2))
@@ -1260,8 +1258,7 @@ if run_watchlist:
     progress = st.progress(0)
     for i, code in enumerate(codes):
         try:
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            raw_df, resolved = load_price_data(normalize_tw_ticker(code), total_days=total_days, today_str=today_str)
+            raw_df, resolved = load_price_data(normalize_tw_ticker(code))
             actual_end = raw_df.index[-1]
             actual_start = actual_end - timedelta(days=total_days)
             
