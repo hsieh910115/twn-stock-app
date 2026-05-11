@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 
 import altair as alt
+import requests
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -13,7 +14,7 @@ import yfinance as yf
 # =========================
 # 基本設定
 # =========================
-APP_TITLE = "台股投資分析"
+APP_TITLE = "台股專業投資分析"
 DEFAULT_WATCHLIST = "2330"
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide")
@@ -132,20 +133,143 @@ def is_valid_number(value) -> bool:
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
 def load_ticker_info(ticker_symbol: str) -> Dict:
+    """讀取 Yahoo Finance 基本資料。get_info 偶爾會空白，因此同時嘗試 info 屬性。"""
     try:
-        info = yf.Ticker(ticker_symbol).get_info()
+        ticker = yf.Ticker(ticker_symbol)
+        info = {}
+        try:
+            info = ticker.get_info() or {}
+        except Exception:
+            info = {}
+        if not info:
+            try:
+                info = ticker.info or {}
+            except Exception:
+                info = {}
         return info if isinstance(info, dict) else {}
     except Exception:
         return {}
 
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
+def load_fast_info(ticker_symbol: str) -> Dict:
+    """讀取 yfinance fast_info，作為 PE/EPS/市值等欄位空白時的備援。"""
+    try:
+        fi = yf.Ticker(ticker_symbol).fast_info
+        keys = [
+            "last_price", "market_cap", "shares", "year_high", "year_low",
+            "ten_day_average_volume", "three_month_average_volume",
+        ]
+        return {k: safe_float(fi.get(k)) for k in keys if k in fi}
+    except Exception:
+        return {}
+
+
+def dividend_yield_pct(info: Dict) -> float:
+    """Yahoo 有時回傳 0.0105，有時回傳 1.05；統一轉成百分比。"""
+    v = safe_float(info.get("dividendYield"))
+    if pd.isna(v):
+        return np.nan
+    if 0 <= v <= 1:
+        return v * 100
+    return v
+
+
+def derive_fundamental_metrics(info: Dict, fast_info: Dict, last_close: float, fin_table: Optional[pd.DataFrame] = None) -> Dict:
+    """整合 info、fast_info 與財報表，盡量補齊 PE/EPS/殖利率/市值/Beta。"""
+    last_close = safe_float(last_close)
+    shares = safe_float(info.get("sharesOutstanding"))
+    if pd.isna(shares):
+        shares = safe_float(fast_info.get("shares"))
+
+    eps = safe_float(info.get("trailingEps"))
+    # 若 EPS 空白，嘗試用最近四季淨利 / 股數估算 TTM EPS
+    if (pd.isna(eps) or eps == 0) and fin_table is not None and not fin_table.empty and "淨利(億)" in fin_table.columns and not pd.isna(shares) and shares > 0:
+        recent_net_income = fin_table["淨利(億)"].dropna().tail(4).sum() * 1e8
+        if recent_net_income != 0:
+            eps = recent_net_income / shares
+
+    pe = safe_float(info.get("trailingPE"))
+    if (pd.isna(pe) or pe <= 0) and not pd.isna(last_close) and not pd.isna(eps) and eps > 0:
+        pe = last_close / eps
+
+    market_cap = safe_float(info.get("marketCap"))
+    if pd.isna(market_cap):
+        market_cap = safe_float(fast_info.get("market_cap"))
+    if pd.isna(market_cap) and not pd.isna(last_close) and not pd.isna(shares) and shares > 0:
+        market_cap = last_close * shares
+
+    return {
+        "pe": pe,
+        "eps": eps,
+        "dividend_yield_pct": dividend_yield_pct(info),
+        "market_cap": market_cap,
+        "beta": safe_float(info.get("beta")),
+    }
+
+
+@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
 def load_financials(ticker_symbol: str) -> pd.DataFrame:
     try:
-        stmt = yf.Ticker(ticker_symbol).quarterly_financials
+        ticker = yf.Ticker(ticker_symbol)
+        stmt = ticker.quarterly_financials
+        if stmt is None or stmt.empty:
+            # 新版 yfinance 有時欄位名稱不同
+            stmt = getattr(ticker, "quarterly_income_stmt", pd.DataFrame())
         if stmt is None or stmt.empty:
             return pd.DataFrame()
         return stmt.copy()
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
+def load_yahoo_quarterly_timeseries(ticker_symbol: str) -> pd.DataFrame:
+    """
+    以 Yahoo fundamentals-timeseries 取得較多季度資料。
+    yfinance 的 quarterly_financials 常只有 5 季，此函式通常可補到 8 季以上。
+    """
+    types = [
+        "quarterlyTotalRevenue",
+        "quarterlyGrossProfit",
+        "quarterlyOperatingIncome",
+        "quarterlyNetIncome",
+    ]
+    period2 = int(datetime.now().timestamp())
+    period1 = int((datetime.now() - timedelta(days=365 * 5)).timestamp())
+    url = f"https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{ticker_symbol}"
+    params = {"type": ",".join(types), "period1": period1, "period2": period2}
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return pd.DataFrame()
+        payload = r.json()
+        results = payload.get("timeseries", {}).get("result", [])
+        rows: Dict[pd.Timestamp, Dict[str, float]] = {}
+        mapping = {
+            "quarterlyTotalRevenue": "營收(億)",
+            "quarterlyGrossProfit": "毛利(億)",
+            "quarterlyOperatingIncome": "營業利益(億)",
+            "quarterlyNetIncome": "淨利(億)",
+        }
+        for item in results:
+            meta_type = (item.get("meta", {}).get("type") or [None])[0]
+            col = mapping.get(meta_type)
+            if not col:
+                continue
+            for v in item.get(meta_type, []):
+                date = pd.to_datetime(v.get("asOfDate"), errors="coerce")
+                raw = v.get("reportedValue", {}).get("raw")
+                if pd.isna(date) or raw is None:
+                    continue
+                rows.setdefault(date, {})[col] = float(raw) / 1e8
+        if not rows:
+            return pd.DataFrame()
+        out = pd.DataFrame.from_dict(rows, orient="index").sort_index()
+        out.index = [f"{d.year}Q{((d.month - 1) // 3) + 1}" for d in out.index]
+        out = out[~out.index.duplicated(keep="last")]
+        return out
     except Exception:
         return pd.DataFrame()
 
@@ -226,7 +350,7 @@ def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
     rsi = safe_float(last["RSI14"])
     pe = safe_float(info.get("trailingPE"))
     eps = safe_float(info.get("trailingEps"))
-    dividend_yield = safe_float(info.get("dividendYield")) * 100
+    dividend_yield = dividend_yield_pct(info)
     beta = safe_float(info.get("beta"))
 
     if "短線" in mode:
@@ -552,6 +676,43 @@ def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
                         continue
                     rows.append({"策略族": strategy_family, "參數": f"突破{n}日高, 量比>{vol}, 跌破MA{exit_ma}出場", "突破天數": n, "出場MA": exit_ma, "量比門檻": vol, **_opt_stats(bt)})
 
+    elif strategy_family == "長線大波段 MA":
+        for short in [40, 60, 90, 120]:
+            for long in [120, 180, 240]:
+                if short >= long:
+                    continue
+                bt = backtest_strategy(df, "長線大波段｜不太操作", {"short_ma": short, "long_ma": long})
+                if not bt:
+                    continue
+                rows.append({"策略族": strategy_family, "參數": f"Close > MA{short} 且 MA{short} > MA{long}", "短均線": short, "長均線": long, **_opt_stats(bt)})
+
+    elif strategy_family == "RSI反轉":
+        for low in [20, 25, 30, 35]:
+            for high in [50, 55, 60, 65]:
+                if low >= high:
+                    continue
+                bt = backtest_strategy(df, "RSI反轉｜頻繁操作搶反彈", {"rsi_low": low, "rsi_high": high})
+                if not bt:
+                    continue
+                rows.append({"策略族": strategy_family, "參數": f"RSI<{low}進場, RSI>{high}或站上MA20出場", "RSI低檔": low, "RSI出場": high, **_opt_stats(bt)})
+
+    elif strategy_family == "布林反彈":
+        # 目前布林策略的結構固定，這裡用不同布林倍數重算後測試。
+        for k in [1.5, 2.0, 2.5, 3.0]:
+            tmp = df.copy()
+            tmp["BB_UPPER"] = tmp["BB_MID"] + k * tmp["BB_STD"]
+            tmp["BB_LOWER"] = tmp["BB_MID"] - k * tmp["BB_STD"]
+            bt = backtest_strategy(tmp, "布林下軌反彈｜有賺就好")
+            if not bt:
+                continue
+            rows.append({"策略族": strategy_family, "參數": f"Close < BB下軌({k}σ)進場, 回中線出場", "布林倍數": k, **_opt_stats(bt)})
+
+    elif strategy_family == "全部策略":
+        for fam in ["均線趨勢 MA", "長線大波段 MA", "EMA動能", "突破追價", "RSI反轉", "布林反彈"]:
+            part = optimize_parameters(df, fam)
+            if not part.empty:
+                rows.extend(part.to_dict("records"))
+
     if not rows:
         return pd.DataFrame()
     out = pd.DataFrame(rows)
@@ -570,54 +731,70 @@ def _opt_stats(bt: Dict) -> Dict:
         "交易次數": bt["trades"],
     }
 
-def make_price_chart(df: pd.DataFrame, rows: int = 240):
-    """固定顏色與圖例，讓 Close、均線、布林通道容易辨識。"""
+def make_price_chart(df: pd.DataFrame, rows: int = 260):
+    """技術圖表：黑色收盤價、週/月/季/半年/年線固定顏色，布林通道灰色區域。"""
     plot = df.tail(rows).reset_index()
     date_col = plot.columns[0]
     plot = plot.rename(columns={date_col: "日期"})
+
+    base = alt.Chart(plot).encode(x=alt.X("日期:T", title="日期"))
+
+    # 布林通道灰色區域：上軌到下軌
+    bb_area = base.mark_area(opacity=0.18, color="#BDBDBD").encode(
+        y=alt.Y("BB_LOWER:Q", title="股價", scale=alt.Scale(zero=False)),
+        y2="BB_UPPER:Q",
+        tooltip=[
+            alt.Tooltip("日期:T", title="日期"),
+            alt.Tooltip("BB_UPPER:Q", title="布林上軌", format=",.2f"),
+            alt.Tooltip("BB_MID:Q", title="布林中線", format=",.2f"),
+            alt.Tooltip("BB_LOWER:Q", title="布林下軌", format=",.2f"),
+        ],
+    )
+
+    # 線圖資料長表
     rename_map = {
-        "Close": "Close 收盤價",
-        "MA20": "MA20 月線",
-        "MA60": "MA60 季線",
-        "MA120": "MA120 半年線",
-        "BB_UPPER": "BB 上軌",
-        "BB_LOWER": "BB 下軌",
+        "Close": "收盤價",
+        "MA5": "週線 MA5",
+        "MA20": "月線 MA20",
+        "MA60": "季線 MA60",
+        "MA120": "半年線 MA120",
+        "MA240": "年線 MA240",
+        "BB_UPPER": "布林上軌",
+        "BB_MID": "布林中線",
+        "BB_LOWER": "布林下軌",
     }
     available = [c for c in rename_map if c in plot.columns]
     long = plot[["日期"] + available].rename(columns=rename_map).melt(
         id_vars="日期", var_name="線種", value_name="數值"
     ).dropna()
 
+    domain = ["收盤價", "週線 MA5", "月線 MA20", "季線 MA60", "半年線 MA120", "年線 MA240", "布林上軌", "布林中線", "布林下軌"]
+    # 使用者指定：週線黃、月線綠、季線淺藍、半年線深藍、年線棕色、收盤價黑色；布林灰色
     color_scale = alt.Scale(
-        domain=["Close 收盤價", "MA20 月線", "MA60 季線", "MA120 半年線", "BB 上軌", "BB 下軌"],
-        range=["#0B63CE", "#F58518", "#2CA02C", "#9467BD", "#9AA0A6", "#9AA0A6"],
+        domain=domain,
+        range=["#111111", "#FFD400", "#00A65A", "#4FC3F7", "#0D47A1", "#8B5A2B", "#8E8E8E", "#8E8E8E", "#8E8E8E"],
     )
     dash_scale = alt.Scale(
-        domain=["Close 收盤價", "MA20 月線", "MA60 季線", "MA120 半年線", "BB 上軌", "BB 下軌"],
-        range=[[1, 0], [4, 2], [6, 3], [2, 2], [8, 4], [8, 4]],
+        domain=domain,
+        range=[[1, 0], [2, 2], [4, 2], [4, 2], [4, 2], [4, 2], [8, 4], [4, 4], [8, 4]],
     )
     size_scale = alt.Scale(
-        domain=["Close 收盤價", "MA20 月線", "MA60 季線", "MA120 半年線", "BB 上軌", "BB 下軌"],
-        range=[3.2, 2.0, 2.0, 1.8, 1.4, 1.4],
+        domain=domain,
+        range=[3.0, 1.6, 1.8, 1.8, 1.8, 1.8, 1.0, 1.2, 1.0],
     )
-
-    return (
-        alt.Chart(long)
-        .mark_line(interpolate="monotone")
-        .encode(
-            x=alt.X("日期:T", title="日期"),
-            y=alt.Y("數值:Q", title="股價", scale=alt.Scale(zero=False)),
-            color=alt.Color("線種:N", scale=color_scale, legend=alt.Legend(title="線種")),
-            strokeDash=alt.StrokeDash("線種:N", scale=dash_scale, legend=None),
-            size=alt.Size("線種:N", scale=size_scale, legend=None),
-            tooltip=[
-                alt.Tooltip("日期:T", title="日期"),
-                alt.Tooltip("線種:N", title="線種"),
-                alt.Tooltip("數值:Q", title="數值", format=",.2f"),
-            ],
-        )
-        .properties(height=430)
+    line = alt.Chart(long).mark_line(interpolate="monotone").encode(
+        x=alt.X("日期:T", title="日期"),
+        y=alt.Y("數值:Q", title="股價", scale=alt.Scale(zero=False)),
+        color=alt.Color("線種:N", scale=color_scale, legend=alt.Legend(title="線種")),
+        strokeDash=alt.StrokeDash("線種:N", scale=dash_scale, legend=None),
+        size=alt.Size("線種:N", scale=size_scale, legend=None),
+        tooltip=[
+            alt.Tooltip("日期:T", title="日期"),
+            alt.Tooltip("線種:N", title="線種"),
+            alt.Tooltip("數值:Q", title="數值", format=",.2f"),
+        ],
     )
+    return (bb_area + line).properties(height=450)
 
 def make_backtest_chart(bt_df: pd.DataFrame):
     plot = bt_df.reset_index()
@@ -632,35 +809,49 @@ def make_backtest_chart(bt_df: pd.DataFrame):
     )
 
 
-def build_financial_table(stmt: pd.DataFrame) -> pd.DataFrame:
-    """整理至少 8 季財報；若資料源不足則顯示可取得的完整季度，並加入 QoQ 與 YoY。"""
-    if stmt.empty:
-        return pd.DataFrame()
-    data = stmt.iloc[:, :8].T.sort_index()
-    wanted = ["Total Revenue", "Gross Profit", "Operating Income", "Net Income"]
-    existing = [x for x in wanted if x in data.columns]
-    if not existing:
+def build_financial_table(stmt: pd.DataFrame, ticker_symbol: Optional[str] = None) -> pd.DataFrame:
+    """整理近 8 季財報，優先使用 Yahoo timeseries 補足 yfinance 只有 5 季的限制。"""
+    tables = []
+
+    if ticker_symbol:
+        ts = load_yahoo_quarterly_timeseries(ticker_symbol)
+        if not ts.empty:
+            tables.append(ts)
+
+    if stmt is not None and not stmt.empty:
+        data = stmt.iloc[:, :12].T.sort_index()
+        wanted = ["Total Revenue", "Gross Profit", "Operating Income", "Net Income"]
+        existing = [x for x in wanted if x in data.columns]
+        if existing:
+            yf_out = data[existing].copy().dropna(how="all")
+            yf_out.index = [f"{d.year}Q{((d.month - 1) // 3) + 1}" for d in yf_out.index]
+            for col in yf_out.columns:
+                yf_out[col] = yf_out[col] / 1e8
+            yf_out = yf_out.rename(columns={
+                "Total Revenue": "營收(億)",
+                "Gross Profit": "毛利(億)",
+                "Operating Income": "營業利益(億)",
+                "Net Income": "淨利(億)",
+            })
+            tables.append(yf_out)
+
+    if not tables:
         return pd.DataFrame()
 
-    out = data[existing].copy()
-    # 移除完全空白的季度，避免 2026Q1 這類尚未更新的欄位造成誤判。
-    out = out.dropna(how="all")
-    out.index = [f"{d.year}Q{((d.month - 1) // 3) + 1}" for d in out.index]
+    # 以較完整的表為底，後面的資料補前面的缺口。
+    out = pd.concat(tables).sort_index()
+    out = out.groupby(out.index).last()
+    out = out.dropna(how="all").tail(8)
 
-    for col in out.columns:
-        out[col] = out[col] / 1e8
-    out = out.rename(columns={
-        "Total Revenue": "營收(億)",
-        "Gross Profit": "毛利(億)",
-        "Operating Income": "營業利益(億)",
-        "Net Income": "淨利(億)",
-    })
     if "營收(億)" in out.columns:
         out["營收QoQ%"] = out["營收(億)"].pct_change() * 100
         out["營收YoY%"] = out["營收(億)"].pct_change(4) * 100
     if "淨利(億)" in out.columns:
         out["淨利YoY%"] = out["淨利(億)"].pct_change(4) * 100
-    return out.tail(8).round(2)
+
+    order = ["營收(億)", "毛利(億)", "營業利益(億)", "淨利(億)", "營收QoQ%", "營收YoY%", "淨利YoY%"]
+    out = out[[c for c in order if c in out.columns]]
+    return out.round(2)
 
 def risk_plan(last: pd.Series, capital: float, risk_pct: float) -> Dict:
     close = safe_float(last["Close"])
@@ -744,6 +935,7 @@ if analyze:
         with st.spinner("正在取得最新股價與財務資料..."):
             raw_df, resolved_ticker = load_price_data(ticker_input, start_date=start_date, end_date=end_date)
             info = load_ticker_info(resolved_ticker)
+            fast_info = load_fast_info(resolved_ticker)
             stmt = load_financials(resolved_ticker)
             full_df = calculate_indicators(raw_df)
             df = trim_to_user_period(full_df, start_date).dropna(subset=["RSI14", "MACD_HIST"])
@@ -821,26 +1013,27 @@ if analyze:
             st.dataframe(levels, hide_index=True, use_container_width=True)
 
         with tab2:
-            st.caption("圖例已固定：深藍＝收盤價、橘色＝MA20、綠色＝MA60、紫色＝MA120、灰色虛線＝布林上下軌。")
+            st.caption("圖例固定：黑色＝收盤價、黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；灰色區域＝布林上下通道，灰線＝布林上中下軌。")
             st.altair_chart(make_price_chart(df), use_container_width=True)
             st.markdown("#### 指標明細")
-            indicator_cols = ["Close", "Volume", "MA5", "MA20", "MA60", "MA120", "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14", "Volume_Ratio", "Return_5D", "Return_20D"]
+            indicator_cols = ["Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240", "BB_UPPER", "BB_MID", "BB_LOWER", "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14", "Volume_Ratio", "Return_5D", "Return_20D"]
             st.dataframe(df[indicator_cols].tail(30).iloc[::-1], use_container_width=True)
 
         with tab3:
+            fin_table = build_financial_table(stmt, resolved_ticker)
+            fund = derive_fundamental_metrics(info, fast_info, last["Close"], fin_table)
             f1, f2, f3, f4, f5 = st.columns(5)
-            f1.metric("本益比 PE", format_number(info.get("trailingPE"), 2))
-            f2.metric("EPS", format_number(info.get("trailingEps"), 2))
-            f3.metric("殖利率", format_number(safe_float(info.get("dividendYield")) * 100, 2, "%"))
-            f4.metric("市值", format_large_twd(info.get("marketCap")))
-            f5.metric("Beta", format_number(info.get("beta"), 2))
+            f1.metric("本益比 PE", format_number(fund["pe"], 2))
+            f2.metric("EPS", format_number(fund["eps"], 2))
+            f3.metric("殖利率", format_number(fund["dividend_yield_pct"], 2, "%"))
+            f4.metric("市值", format_large_twd(fund["market_cap"]))
+            f5.metric("Beta", format_number(fund["beta"], 2))
 
-            fin_table = build_financial_table(stmt)
             if fin_table.empty:
                 st.info("此股票目前無法從 yfinance 取得完整季財務資料。")
             else:
                 st.markdown("#### 近八季財務趨勢")
-                st.caption("由最新完整季度往前列出最多 8 季；若資料源尚未更新，會自動略過整季空白資料。QoQ 是季增率，YoY 是與去年同季相比。")
+                st.caption("優先以 Yahoo timeseries 補足近 8 季；若資料源真的只提供較少季數，會顯示可取得的完整季度。QoQ 是季增率，YoY 是與去年同季相比。")
                 st.dataframe(fin_table.iloc[::-1], use_container_width=True)
                 if "營收QoQ%" in fin_table.columns and not fin_table["營收QoQ%"].dropna().empty:
                     latest_growth = fin_table["營收QoQ%"].dropna().iloc[-1]
@@ -914,7 +1107,7 @@ if analyze:
                 st.markdown("---")
                 st.markdown("#### 參數最佳化")
                 st.caption("依照左側輸入的資料期間尋找歷史表現較穩健的參數組合。這不是保證未來最佳，只是用來避免憑感覺設定 MA20/MA60。")
-                opt_family = st.selectbox("選擇要最佳化的策略族", ["均線趨勢 MA", "EMA動能", "突破追價"])
+                opt_family = st.selectbox("選擇要最佳化的策略族", ["全部策略", "均線趨勢 MA", "長線大波段 MA", "EMA動能", "突破追價", "RSI反轉", "布林反彈"])
                 run_opt = st.button("執行參數最佳化", type="secondary", use_container_width=True)
                 if run_opt:
                     with st.spinner("正在測試不同參數組合..."):
@@ -1007,3 +1200,4 @@ if run_watchlist:
         st.info("沒有成功取得任何觀察清單資料。")
 
 st.divider()
+st.caption("免責聲明：本工具僅供教育研究與投資流程輔助，。實際交易請自行承擔風險。")
