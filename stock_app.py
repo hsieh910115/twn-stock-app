@@ -1036,12 +1036,52 @@ if analyze:
         price_change = safe_float(last["Close"] - prev["Close"])
         price_change_pct = safe_float(last["Return_1D"] * 100)
         arrow = "↑" if price_change >= 0 else "↓"
-        c1.metric(
-            "收盤價",
-            format_number(last["Close"], 2),
-            delta=f"{arrow} {price_change:+,.2f} ({price_change_pct:+.2f}%)",
-            delta_color="inverse",
-        )
+        # ===== 台股漲跌顯示 =====
+        if price_change >= 0:
+            color = "#d60000"   # 台股紅漲
+            arrow = "↑"
+        else:
+            color = "#00a000"   # 台股綠跌
+            arrow = "↓"
+
+        with c1:
+            st.markdown(
+                f"""
+                <div style="margin-bottom:10px;">
+
+                    <div style="
+                        font-size:18px;
+                        color:#666;
+                        font-weight:600;
+                    ">
+                        收盤價
+                    </div>
+
+                    <div style="
+                        font-size:52px;
+                        font-weight:700;
+                        line-height:1.1;
+                    ">
+                        {last["Close"]:,.2f}
+                    </div>
+
+                    <div style="
+                        display:inline-block;
+                        margin-top:8px;
+                        padding:6px 14px;
+                        border-radius:16px;
+                        background-color:rgba(0,0,0,0.05);
+                        color:{color};
+                        font-size:22px;
+                        font-weight:700;
+                    ">
+                        {price_change:+,.2f} ({price_change_pct:+.2f}%) {arrow}
+                    </div>
+
+                </div>
+                """,
+                unsafe_allow_html=True
+            )  
         c2.metric("RSI14", format_number(last["RSI14"], 1))
         c3.metric("MACD柱", format_number(last["MACD_HIST"], 2))
         c4.metric("20日量比", format_number(last["Volume_Ratio"], 2))
