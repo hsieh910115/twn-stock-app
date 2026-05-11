@@ -83,24 +83,27 @@ def format_large_twd(value) -> str:
     return f"{value:.0f}"
 
 
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
-def load_price_data(ticker_symbol: str, total_days: int) -> Tuple[pd.DataFrame, str]:
+@st.cache_data(ttl=60 * 15, show_spinner=False)
+def load_price_data(ticker_symbol: str, total_days: int, today_str: str) -> Tuple[pd.DataFrame, str]:
     """抓取股價資料。上市用 .TW，若無資料自動嘗試 .TWO。
 
     重要：抓取足夠長的 warmup 資料，讓長週期指標正常計算。
+    today_str 用來當作 cache key，確保每天（或 TTL 過期後）會抓新資料。
     """
     candidates = [ticker_symbol]
     if ticker_symbol.endswith(".TW"):
         candidates.append(ticker_symbol.replace(".TW", ".TWO"))
 
     last_error = ""
-    # 預估一個夠早的起始點：今日往回推 total_days 再多加 450 天 warmup
-    start_date = (datetime.now() - timedelta(days=total_days + 450)).strftime("%Y-%m-%d")
+    # 預估一個夠早的起始點：起始日往回推再加 450 天 warmup
+    start_dt = datetime.now() - timedelta(days=total_days + 450)
+    start_date_str = start_dt.strftime("%Y-%m-%d")
+    # 設定 end 為明天，確保能抓到今天還沒收盤或剛收盤的資料
+    end_date_str = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     
     for symbol in candidates:
         try:
-            # 不設定 end，讓 yfinance 抓到最新
-            df = yf.Ticker(symbol).history(start=start_date, auto_adjust=False)
+            df = yf.Ticker(symbol).history(start=start_date_str, end=end_date_str, auto_adjust=False)
             if not df.empty:
                 df = df.copy()
                 df.index = pd.to_datetime(df.index).tz_localize(None)
@@ -118,10 +121,17 @@ def period_to_days(years: int, months: int) -> int:
     return max(years * 365 + months * 30, 30)
 
 
-def trim_to_user_period(df: pd.DataFrame, start_date: str) -> pd.DataFrame:
-    """指標計算完後，切回使用者指定的分析期間。"""
-    start = pd.to_datetime(start_date)
-    trimmed = df[df.index >= start].copy()
+def trim_to_user_period(df: pd.DataFrame, target_start: pd.Timestamp) -> pd.DataFrame:
+    """指標計算完後，切回使用者指定的分析期間。
+    若 target_start 非交易日，則自動往回找最近的一個交易日（滿足『補齊少的那一天』邏輯）。
+    """
+    # 找出所有小於等於目標起始日的日期中，最大（即最近）的一個
+    past_dates = df.index[df.index <= target_start]
+    if past_dates.empty:
+        return df.copy()
+    
+    actual_start = past_dates.max()
+    trimmed = df[df.index >= actual_start].copy()
     return trimmed
 
 
@@ -226,7 +236,8 @@ def derive_fundamental_metrics(info: Dict, fast_info: Dict, last_close: float, f
 def estimate_beta_vs_twii(stock_df: pd.DataFrame, total_days: int) -> float:
     """當 Yahoo beta 空白時，用近期間股價報酬相對加權指數 ^TWII 粗估 Beta。"""
     try:
-        market_raw, _ = load_price_data("^TWII", total_days=total_days)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        market_raw, _ = load_price_data("^TWII", total_days=total_days, today_str=today_str)
         market = calculate_indicators(market_raw) if "Return_1D" not in market_raw.columns else market_raw
         s_ret = stock_df["Close"].pct_change().rename("stock")
         m_ret = market["Close"].pct_change().rename("market")
@@ -996,14 +1007,14 @@ if not analyze and not run_watchlist:
 if analyze:
     ticker_input = normalize_tw_ticker(raw_code)
     try:
+        today_str = datetime.now().strftime("%Y-%m-%d")
         with st.spinner("正在取得最新股價與財務資料..."):
-            # 1. 抓取包含 warmup 的原始資料
-            raw_df, resolved_ticker = load_price_data(ticker_input, total_days=total_days)
+            # 1. 抓取包含 warmup 的原始資料 (加上 today_str 確保快取每日更新)
+            raw_df, resolved_ticker = load_price_data(ticker_input, total_days=total_days, today_str=today_str)
             
             # 2. 找出資料中的最新日期，並以此往回計算分析起始日
             actual_end = raw_df.index[-1]
             actual_start = actual_end - timedelta(days=total_days)
-            actual_start_str = actual_start.strftime("%Y-%m-%d")
 
             info = load_ticker_info(resolved_ticker)
             fast_info = load_fast_info(resolved_ticker)
@@ -1012,8 +1023,8 @@ if analyze:
             # 3. 計算指標（使用完整 raw_df 以確保 MA/RSI 正確）
             full_df = calculate_indicators(raw_df)
             
-            # 4. 裁切回使用者要求的實際區間
-            df = trim_to_user_period(full_df, actual_start_str).dropna(
+            # 4. 裁切回使用者要求的實際區間 (改善後的 trim_to_user_period 會處理非交易日)
+            df = trim_to_user_period(full_df, actual_start).dropna(
                 subset=["Open", "High", "Low", "Close", "RSI14", "MACD_HIST"]
             )
         if df.empty or len(df) < 20:
@@ -1249,13 +1260,14 @@ if run_watchlist:
     progress = st.progress(0)
     for i, code in enumerate(codes):
         try:
-            raw_df, resolved = load_price_data(normalize_tw_ticker(code), total_days=total_days)
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            raw_df, resolved = load_price_data(normalize_tw_ticker(code), total_days=total_days, today_str=today_str)
             actual_end = raw_df.index[-1]
-            actual_start_str = (actual_end - timedelta(days=total_days)).strftime("%Y-%m-%d")
+            actual_start = actual_end - timedelta(days=total_days)
             
             info = load_ticker_info(resolved)
             full_df = calculate_indicators(raw_df)
-            df = trim_to_user_period(full_df, actual_start_str).dropna(subset=["RSI14", "MACD_HIST"])
+            df = trim_to_user_period(full_df, actual_start).dropna(subset=["RSI14", "MACD_HIST"])
             if df.empty or len(df) < 20:
                 continue
             last = df.iloc[-1]
