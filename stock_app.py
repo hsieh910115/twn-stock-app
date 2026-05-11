@@ -1033,22 +1033,14 @@ if analyze:
             st.info(f"綜合評分：{score['score']}｜{score['label']}")
 
         c1, c2, c3, c4, c5, c6 = st.columns(6)
-
         price_change = safe_float(last["Close"] - prev["Close"])
         price_change_pct = safe_float(last["Return_1D"] * 100)
-
-        if price_change >= 0:
-            arrow = "↑"
-            delta_color = "normal"   # 台股：漲 = 紅
-        else:
-            arrow = "↓"
-            delta_color = "inverse"  # 台股：跌 = 綠
-
+        arrow = "↑" if price_change >= 0 else "↓"
         c1.metric(
             "收盤價",
             format_number(last["Close"], 2),
-            delta=f"{price_change:+,.2f} ({price_change_pct:+.2f}%) {arrow}",
-            delta_color=delta_color,
+            delta=f"{arrow} {price_change:+,.2f} ({price_change_pct:+.2f}%)",
+            delta_color="inverse",
         )
         c2.metric("RSI14", format_number(last["RSI14"], 1))
         c3.metric("MACD柱", format_number(last["MACD_HIST"], 2))
