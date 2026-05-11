@@ -1199,7 +1199,7 @@ if analyze:
             st.dataframe(levels, hide_index=True, use_container_width=True)
 
         with tab2:
-            st.caption("K線顏色採台股習慣：紅K＝收漲、綠K＝收跌；黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；灰色區域＝布林上下通道，灰線＝布林上中下軌。")
+            st.caption("紅K＝收漲、綠K＝收跌；黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；灰色區域＝布林上下通道，灰線＝布林上中下軌。")
             st.plotly_chart(make_price_chart(df, close_overlay=full_df["Close"]), use_container_width=True)
             st.markdown("#### 指標明細")
             indicator_cols = ["Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240", "BB_UPPER", "BB_MID", "BB_LOWER", "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14", "Volume_Ratio", "Return_5D", "Return_20D"]
@@ -1210,13 +1210,34 @@ if analyze:
             fund = derive_fundamental_metrics(info, fast_info, last["Close"], fin_table)
             if pd.isna(fund.get("beta")):
                 fund["beta"] = estimate_beta_vs_twii(df)
-            f1, f2, f3, f4, f5 = st.columns(5)
-            f1.metric("本益比 PE", format_number(fund["pe"], 2))
-            f2.metric("EPS", format_number(fund["eps"], 2))
-            f3.metric("殖利率", format_number(fund["dividend_yield_pct"], 2, "%"))
-            f4.metric("市值", format_large_twd(fund["market_cap"]))
-            f5.metric("Beta", format_number(fund["beta"], 2))
-            st.caption("PE、殖利率優先使用 FinMind；若 FinMind 無資料，則以 yfinance 補 PE、EPS、殖利率、市值與 Beta。Beta 若仍空白，會用本分析期間相對加權指數 TAIEX 的日報酬粗估。")
+            # ===== 基本面資料 =====
+            pe = safe_float(info.get("trailingPE"))
+
+            # FinMind 的 dividend_yield 已經是 %
+            dividend_yield = safe_float(info.get("dividendYield"))
+
+            # 用 股價 / PE 反推 EPS
+            eps = np.nan
+            if not pd.isna(pe) and pe > 0:
+                eps = last["Close"] / pe
+
+            # Beta 若沒有則自行估算
+            beta = safe_float(info.get("beta"))
+            if pd.isna(beta):
+                beta = estimate_beta_vs_twii(df)
+
+            # ===== 顯示 =====
+            f1, f2, f3, f4 = st.columns(4)
+
+            f1.metric("本益比 PE", format_number(pe, 2))
+            f2.metric("EPS", format_number(eps, 2))
+            f3.metric("殖利率", format_number(dividend_yield, 2, "%"))
+            f4.metric("Beta", format_number(beta, 2))
+
+            st.caption(
+                "PE、殖利率優先使用 FinMind；EPS 以股價 ÷ PE 推估；"
+                "Beta 若無資料則以相對加權指數 TAIEX 日報酬估算。"
+            )
             if fin_table.empty:
                 st.info("此股票目前無法從 FinMind 取得完整季財務資料。")
             else:
