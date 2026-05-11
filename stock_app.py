@@ -553,7 +553,7 @@ def position_from_entry_exit(entry: pd.Series, exit_: pd.Series, index: pd.Index
 
 
 STRATEGY_PRESETS: Dict[str, Dict[str, str]] = {
-    "保守均線趨勢｜少交易、不要死太慘": {
+    "保守均線趨勢｜少交易": {
         "style": "保守／低頻／防守型",
         "rule": "Close > MA20 且 MA20 > MA60 才持有；否則空手。",
         "fit": "適合震盪或偏空環境，用來避開大跌；缺點是容易錯過飆股主升段。",
@@ -1023,7 +1023,7 @@ if analyze:
             
             # 4. 裁切回使用者要求的區間
             df = trim_to_user_period(full_df, actual_start).dropna(
-                subset=["Open", "High", "Low", "Close", "RSI14", "MACD_HIST"]
+                subset=["Close", "RSI14", "MACD_HIST"]
             )
         if df.empty or len(df) < 20:
             st.error("資料量不足，無法計算完整指標。請增加月份、改用更長期間，或確認股票代碼。")
