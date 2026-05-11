@@ -772,7 +772,7 @@ def _opt_stats(bt: Dict) -> Dict:
         "交易次數": bt["trades"],
     }
 
-def make_price_chart(df: pd.DataFrame, rows: int = 260):
+def make_price_chart(df: pd.DataFrame, rows: int = 260, close_overlay: pd.Series = None):
     """專業 K 線圖：台股紅漲綠跌、疊加 MA 與布林灰色區域，並附成交量。"""
     plot = df.tail(rows).copy().reset_index()
     date_col = plot.columns[0]
@@ -853,6 +853,21 @@ def make_price_chart(df: pd.DataFrame, rows: int = 260):
             hovertemplate="%{x}<br>成交量 %{y:,.0f}<extra></extra>",
         ), row=2, col=1
     )
+
+    if close_overlay is not None:
+        overlay = close_overlay.tail(rows + 5).reset_index()
+        overlay.columns = ["日期", "收盤價"]
+        fig.add_trace(
+            go.Scatter(
+                x=overlay["日期"],
+                y=overlay["收盤價"],
+                mode="lines",
+                line=dict(color="#000000", width=1.8),
+                name="收盤價",
+                hovertemplate="%{x}<br>收盤 %{y:,.2f}<extra></extra>",
+            ), row=1, col=1
+        )    
+
 
     fig.update_layout(
         height=650,
@@ -1025,16 +1040,19 @@ if analyze:
             df = trim_to_user_period(full_df, actual_start).dropna(
                 subset=["Close", "RSI14", "MACD_HIST"]
             )
+            last_raw = full_df.iloc[-1]   # 最新一天（含今天未收盤完整資料）
+            prev_raw = full_df.iloc[-2]   # 前一天
+            
         if df.empty or len(df) < 20:
             st.error("資料量不足，無法計算完整指標。請增加月份、改用更長期間，或確認股票代碼。")
             st.stop()
         if len(df) < 60:
             st.warning("目前分析期間較短，部分長週期指標與回測結果會比較不穩定；若要看中長期策略，建議至少 1 年以上。")
 
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        latest_date = df.index[-1].strftime("%Y-%m-%d")
-        stale_days = (datetime.now() - df.index[-1]).days
+        last = last_raw
+        prev = prev_raw
+        latest_date = full_df.index[-1].strftime("%Y-%m-%d")
+        stale_days = (datetime.now() - full_df.index[-1]).days
         company_name = info.get("longName") or info.get("shortName") or display_code(resolved_ticker)
 
         st.subheader(f"{company_name}（{resolved_ticker}）")
@@ -1111,7 +1129,7 @@ if analyze:
 
         with tab2:
             st.caption("K線顏色採台股習慣：紅K＝收漲、綠K＝收跌；黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；灰色區域＝布林上下通道，灰線＝布林上中下軌。")
-            st.plotly_chart(make_price_chart(df), use_container_width=True)
+            st.plotly_chart(make_price_chart(df, close_overlay=full_df["Close"]), use_container_width=True)
             st.markdown("#### 指標明細")
             indicator_cols = ["Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240", "BB_UPPER", "BB_MID", "BB_LOWER", "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14", "Volume_Ratio", "Return_5D", "Return_20D"]
             st.dataframe(df[indicator_cols].tail(30).iloc[::-1], use_container_width=True)
