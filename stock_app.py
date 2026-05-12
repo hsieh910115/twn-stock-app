@@ -597,20 +597,39 @@ def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
     if is_valid_number(last.get("Drawdown")) and last["Drawdown"] < -0.25:
         warnings.append("目前距歷史高點回撤超過 25%，需確認是否為基本面轉弱。")
 
-    if score >= 6:
-        label = "偏多觀察／可列入候選"
-        level = "success"
-    elif score >= 3:
-        label = "中性偏多／等待更佳切入點"
-        level = "info"
-    elif score <= -3:
-        label = "偏弱／先避開或嚴控風險"
-        level = "error"
+    # ===== 將原始分數轉成 0~10 分 =====
+    if "短線" in mode:
+        score_min, score_max = -7, 7
     else:
-        label = "中性整理／不急著出手"
-        level = "warning"
+        score_min, score_max = -5, 9
 
-    return {"score": score, "label": label, "level": level, "reasons": reasons[:6], "warnings": warnings[:6]}
+    score_10 = (score - score_min) / (score_max - score_min) * 10
+    score_10 = max(0, min(10, score_10))
+
+    if score_10 >= 8:
+        label = "非常強勢／可優先觀察"
+        level = "success"
+    elif score_10 >= 6:
+        label = "偏多／可列入候選"
+        level = "info"
+    elif score_10 >= 4:
+        label = "中性整理／等待方向"
+        level = "warning"
+    elif score_10 >= 2:
+        label = "偏弱／保守觀望"
+        level = "warning"
+    else:
+        label = "高風險／不建議介入"
+        level = "error"
+
+    return {
+        "score": score,
+        "score_10": round(score_10, 1),
+        "label": label,
+        "level": level,
+        "reasons": reasons[:6],
+        "warnings": warnings[:6],
+    }
 
 def compute_backtest_stats(bt: pd.DataFrame) -> Dict:
     """根據 bt 內的 Return_1D、Signal、Strategy_Return 計算績效。"""
@@ -1317,15 +1336,20 @@ if analyze:
             st.caption(f"最新交易日：{latest_date}")
 
         score = score_stock(df, info, mode)
-        if score["level"] == "success":
-            st.success(f"綜合評分：{score['score']}｜{score['label']}")
-        elif score["level"] == "error":
-            st.error(f"綜合評分：{score['score']}｜{score['label']}")
-        elif score["level"] == "warning":
-            st.warning(f"綜合評分：{score['score']}｜{score['label']}")
-        else:
-            st.info(f"綜合評分：{score['score']}｜{score['label']}")
+        score_text = (
+            f"綜合評分：{score['score_10']}/10"
+            f"｜{score['label']}"
+        )
 
+        if score["level"] == "success":
+            st.success(score_text)
+        elif score["level"] == "error":
+            st.error(score_text)
+        elif score["level"] == "warning":
+            st.warning(score_text)
+        else:
+            st.info(score_text)
+            
         c1, c2, c3, c4, c5, c6 = st.columns(6)
         price_change = safe_float(last["Close"] - prev["Close"])
         price_change_pct = safe_float(last["Return_1D"] * 100)
@@ -1607,13 +1631,144 @@ if analyze:
             st.caption("提醒：此頁只把策略轉成條件式操作規則，不代表預測未來價格，也不構成投資建議。")
               
         with tab7:
-            st.markdown("#### 短線與長線分析差異")
-            st.dataframe(mode_difference_table(), hide_index=True, use_container_width=True)
-            if "短線" in mode:
-                st.success("目前使用短線／波段模式：分數會更重視短均線、MACD、RSI、量能與近 20 日強弱。")
-            else:
-                st.success("目前使用長線／存股模式：分數會更重視季線、半年線、年線、PE、EPS、殖利率與 Beta。")
-            st.caption("同一檔股票在兩種模式下可能得到不同結論，因為短線問的是『近期有沒有動能』，長線問的是『估值、趨勢與現金流是否適合長期持有』。")
+            st.markdown("## 短線與長線分析差異")
+
+            compare_df = pd.DataFrame({
+                "面向": ["核心目的", "主要看什麼", "操作週期", "風控邏輯", "適合族群"],
+                "短線／波段": [
+                    "抓 1~8 週價差與動能延續",
+                    "MA5、MA20、MACD、RSI、量比、20日強弱",
+                    "幾天～數週",
+                    "停損較嚴格，重視 ATR 與跳空風險",
+                    "偏好主流股、強勢股、題材股",
+                ],
+                "長線／存股": [
+                    "看半年以上趨勢、估值與現金流",
+                    "MA60、MA120、MA240、PE、EPS、殖利率、Beta",
+                    "數月～數年",
+                    "可分批布局，但仍需限制單筆最大損失",
+                    "偏好大型權值股、ETF、穩定獲利企業",
+                ],
+            })
+            st.dataframe(compare_df, hide_index=True, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("## 評分方式說明")
+
+            st.info(
+                "系統會先依照短線或長線模式計算原始分數，再轉換成 0～10 分。"
+                "10 分代表目前條件最符合該模式，0 分代表目前條件最不符合。"
+            )
+
+            norm_df = pd.DataFrame({
+                "模式": ["短線／波段", "長線／存股"],
+                "原始最低分": [-7, -5],
+                "原始最高分": [7, 9],
+                "轉換方式": [
+                    "將 -7～7 正規化為 0～10 分",
+                    "將 -5～9 正規化為 0～10 分",
+                ],
+            })
+            st.dataframe(norm_df, hide_index=True, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("## 短線／波段模式加減分")
+
+            short_score_df = pd.DataFrame({
+                "類型": [
+                    "加分", "加分", "加分", "加分", "加分",
+                    "扣分", "扣分", "扣分", "扣分", "扣分",
+                ],
+                "條件": [
+                    "股價 > MA5 且 MA5 > MA20",
+                    "MACD 柱狀體 > 0 且持續擴大",
+                    "RSI14 位於 45~68",
+                    "量比 > 1.5 且當日上漲",
+                    "20日報酬 > 8%",
+                    "股價 < MA5 且 MA5 < MA20",
+                    "MACD 柱狀體 < 0",
+                    "RSI14 > 75",
+                    "量比 > 1.8 且當日下跌",
+                    "20日報酬 < -8%",
+                ],
+                "原始分數": ["+2", "+2", "+1", "+1", "+1", "-2", "-1", "-2", "-1", "-1"],
+                "意義": [
+                    "短線多頭排列",
+                    "動能轉強",
+                    "偏強但未過熱",
+                    "資金進場",
+                    "相對強勢股",
+                    "短線偏空排列",
+                    "動能偏弱",
+                    "追高風險",
+                    "放量下跌",
+                    "弱勢股",
+                ],
+            })
+            st.dataframe(short_score_df, hide_index=True, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("## 長線／存股模式加減分")
+
+            long_score_df = pd.DataFrame({
+                "類型": [
+                    "加分", "加分", "加分", "加分", "加分", "加分",
+                    "扣分", "扣分", "扣分", "扣分",
+                ],
+                "條件": [
+                    "股價 > MA60 且 MA60 > MA120",
+                    "股價 > MA240",
+                    "PE ≤ 20",
+                    "EPS > 0",
+                    "殖利率 ≥ 4%",
+                    "Beta ≤ 1",
+                    "股價 < MA60",
+                    "股價 < MA240",
+                    "PE > 35",
+                    "EPS ≤ 0",
+                ],
+                "原始分數": ["+2", "+1", "+2", "+1", "+2", "+1", "-2", "-1", "-1", "-1"],
+                "意義": [
+                    "中長期多頭趨勢",
+                    "站穩年線",
+                    "估值合理",
+                    "公司具獲利",
+                    "現金流吸引力較高",
+                    "波動相對穩定",
+                    "跌破季線",
+                    "跌破年線",
+                    "估值偏高",
+                    "獲利能力弱",
+                ],
+            })
+            st.dataframe(long_score_df, hide_index=True, use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("## 0～10 分對應評語")
+
+            rating_df = pd.DataFrame({
+                "0～10分區間": ["8.0～10", "6.0～7.9", "4.0～5.9", "2.0～3.9", "0～1.9"],
+                "評語": [
+                    "非常強勢／可優先觀察",
+                    "偏多／可列入候選",
+                    "中性整理／等待方向",
+                    "偏弱／保守觀望",
+                    "高風險／不建議介入",
+                ],
+                "代表意義": [
+                    "多數條件符合，目前結構較佳",
+                    "部分條件轉佳，可持續追蹤",
+                    "多空訊號混雜，尚未明確",
+                    "條件偏弱，進場需保守",
+                    "風險較高，暫不適合介入",
+                ],
+            })
+            st.dataframe(rating_df, hide_index=True, use_container_width=True)
+
+            st.caption(
+                "提醒：0～10 分是由原始規則分數轉換而來，方便快速閱讀；"
+                "分數越高代表越符合目前選擇的操作模式，但不代表未來報酬保證。"
+            )
 
         with st.expander("下載目前分析資料"):
             csv = df.to_csv(index=True).encode("utf-8-sig")
