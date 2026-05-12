@@ -234,7 +234,7 @@ def load_ticker_info(ticker_symbol: str) -> Dict:
             # FinMind 欄位常見：PER、PBR、dividend_yield
             info["trailingPE"] = safe_float(latest.get("PER"))
             info["priceToBook"] = safe_float(latest.get("PBR"))
-            info["dividendYield"] = safe_float(latest.get("dividend_yield"))
+            info["finmindDividendYield"] = safe_float(latest.get("dividend_yield"))
     except Exception:
         pass
     return info
@@ -279,12 +279,12 @@ def load_fast_info(ticker_symbol: str) -> Dict:
 
 
 def dividend_yield_pct(info: Dict, last_close: float = np.nan) -> float:
-    """盡量從 FinMind 欄位推估殖利率，並統一轉成百分比。
+    # FinMind 的 dividend_yield 已經是百分比，不要再 *100
+    v = safe_float(info.get("finmindDividendYield"))
+    if not pd.isna(v) and v > 0:
+        return v
 
-    FinMind 對台股常出現 dividendYield 空白，因此依序嘗試：
-    dividendYield、trailingAnnualDividendYield、fiveYearAvgDividendYield、
-    dividendRate / 股價、trailingAnnualDividendRate / 股價、lastDividendValue / 股價。
-    """
+    # yfinance 常是小數，例如 0.0098 = 0.98%
     for key in ["dividendYield", "trailingAnnualDividendYield"]:
         v = safe_float(info.get(key))
         if not pd.isna(v) and v > 0:
@@ -1795,6 +1795,7 @@ if run_watchlist:
                 continue
             last = df.iloc[-1]
             score = score_stock(df, info, mode)
+            dy = dividend_yield_pct(info, last["Close"])
             rows.append(
                 {
                     "代碼": resolved,
@@ -1806,8 +1807,8 @@ if run_watchlist:
                     "RSI": round(last["RSI14"], 1),
                     "量比": round(last["Volume_Ratio"], 2),
                     "PE": round(safe_float(info.get("trailingPE")), 2) if not pd.isna(safe_float(info.get("trailingPE"))) else np.nan,
-                    "殖利率%": round(dividend_yield_pct(info, last["Close"]), 2) if not pd.isna(dividend_yield_pct(info, last["Close"])) else np.nan,
-                    "分數": score["score"],
+                    "殖利率%": round(dy, 2) if not pd.isna(dy) else np.nan,
+                    "分數": score["score_10"],
                     "結論": score["label"],
                 }
             )
