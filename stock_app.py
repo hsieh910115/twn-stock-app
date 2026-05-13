@@ -1400,45 +1400,31 @@ def render_changelog(changelog_text):
 
     for line in changelog_text.strip().splitlines():
         line = line.strip()
-
         if not line:
             continue
 
-        # 只解析日期
         match = re.match(r"(\d{4})\.(\d{2})\.(\d{2})\s+(.+)", line)
 
         if match:
             year, month, day, content = match.groups()
             date = f"{year}-{month}-{day}"
-
             items.append((date, content))
 
     html = """
-<div style="
-max-height: 220px;
-overflow-y: auto;
-padding: 12px 16px;
-border: 1px solid #e5e7eb;
-border-radius: 12px;
-background-color: #fafafa;
-line-height: 1.7;
-">
+<div style="max-height:220px; overflow-y:auto; padding:12px 16px; border:1px solid #e5e7eb; border-radius:12px; background-color:#fafafa; line-height:1.7;">
 """
 
     for date, content in items:
         html += f"""
-<div style="margin-bottom: 14px;">
-    <div style="font-weight: 700; color: #111827;">
-        📌 {date}
-    </div>
-
-    <div style="color: #374151; margin-left: 4px;">
-        {content}
-    </div>
+<div style="margin-bottom:14px;">
+<div style="font-weight:700; color:#111827;">📌 {date}</div>
+<div style="color:#374151; margin-left:4px;">{content}</div>
 </div>
 """
 
-    html += "</div>"
+    html += """
+</div>
+"""
 
     return html
 
