@@ -1469,151 +1469,6 @@ def get_tw_stock_list():
 
     return stock_dict
 
-
-@st.cache_data(ttl=60 * 30)
-def run_ai_momentum_scan(batch_size=20):
-    stock_dict = get_tw_stock_list()
-
-    # 建議先限制前 300 檔，避免 Streamlit Cloud crash
-    all_tickers = list(stock_dict.keys())[:300]
-
-    records = []
-
-    for i in range(0, len(all_tickers), batch_size):
-        batch = all_tickers[i:i + batch_size]
-
-        try:
-            data = yf.download(
-                batch,
-                period="100d",
-                interval="1d",
-                group_by="ticker",
-                auto_adjust=False,
-                progress=False,
-                threads=False,
-            )
-
-            for ticker in batch:
-                try:
-                    df = data[ticker] if len(batch) > 1 else data
-                    df = df.dropna()
-
-                    if df.empty or len(df) < 60:
-                        continue
-
-                    close = df["Close"]
-                    if len(close) < 60:
-                        continue
-
-                    ma5 = close.rolling(5).mean().iloc[-1]
-                    ma20 = close.rolling(20).mean().iloc[-1]
-                    ma60 = close.rolling(60).mean().iloc[-1]
-
-                    current_close = close.iloc[-1]
-
-                    daily_ret = close.pct_change()
-                    hist_vol = daily_ret.rolling(20).std().iloc[-1] * np.sqrt(252) * 100
-
-                    std20 = close.rolling(20).std().iloc[-1]
-                    bb_upper = ma20 + 2 * std20
-                    bb_lower = ma20 - 2 * std20
-                    bb_width = (bb_upper - bb_lower) / ma20 * 100
-
-                    p_to_ma60 = (current_close / ma60 - 1) * 100
-                    trend_str = (ma5 / ma60 - 1) * 100
-                    p_to_ma20 = (current_close / ma20 - 1) * 100
-                    p_to_bbupper = (current_close / bb_upper - 1) * 100
-                    roc_10 = (current_close - close.iloc[-11]) / close.iloc[-11] * 100
-
-                    values = [
-                        hist_vol,
-                        bb_width,
-                        p_to_ma60,
-                        trend_str,
-                        p_to_ma20,
-                        p_to_bbupper,
-                        roc_10,
-                    ]
-
-                    if any(pd.isna(v) or np.isinf(v) for v in values):
-                        continue
-
-                    records.append({
-                        "ID": ticker.replace(".TW", "").replace(".TWO", ""),
-                        "Ticker": ticker,
-                        "Name": stock_dict[ticker]["name"],
-                        "Industry": stock_dict[ticker]["industry"],
-                        "Close": current_close,
-                        "MA5": ma5,
-                        "F_Hist_Vol": hist_vol,
-                        "F_BB_Width": bb_width,
-                        "F_P_to_MA60": p_to_ma60,
-                        "F_Trend_Strength": trend_str,
-                        "F_P_to_MA20": p_to_ma20,
-                        "F_P_to_BBUpper": p_to_bbupper,
-                        "F_ROC_10": roc_10,
-                    })
-
-                except Exception:
-                    continue
-
-        except Exception:
-            continue
-
-    df_res = pd.DataFrame(records)
-
-    if df_res.empty:
-        return df_res
-
-    features = [
-        "F_Hist_Vol",
-        "F_BB_Width",
-        "F_P_to_MA60",
-        "F_Trend_Strength",
-        "F_P_to_MA20",
-        "F_P_to_BBUpper",
-        "F_ROC_10",
-    ]
-
-    weights = [29.08, 19.33, 10.39, 7.67, 7.26, 5.09, 4.25]
-
-    for f in features:
-        df_res[f"{f}_Rank"] = df_res[f].rank(pct=True)
-
-    df_res["AI_Score"] = 0.0
-
-    for f, w in zip(features, weights):
-        df_res["AI_Score"] += df_res[f"{f}_Rank"] * w
-
-    df_res["AI_Score"] = df_res["AI_Score"] / sum(weights) * 100
-
-    # 原邏輯：防守濾網，收盤價需站上 MA5
-    df_res = df_res[df_res["Close"] >= df_res["MA5"]].copy()
-
-    df_res = df_res.sort_values("AI_Score", ascending=False).reset_index(drop=True)
-    df_res.insert(0, "Rank", df_res.index + 1)
-
-    display_cols = [
-        "Rank",
-        "ID",
-        "Name",
-        "Industry",
-        "Close",
-        "AI_Score",
-        "F_Hist_Vol",
-        "F_BB_Width",
-        "F_P_to_MA60",
-        "F_Trend_Strength",
-        "F_P_to_MA20",
-        "F_P_to_BBUpper",
-        "F_ROC_10",
-    ]
-
-    return df_res[display_cols]
-
-
-
-
 # =========================
 # 介面
 # =========================
@@ -2128,62 +1983,53 @@ if analyze:
             )
 
 
-        # ===== Tab 8：AI 動能選股 =====
         with tab8:
             st.header("🚀 AI 動能選股")
-            st.caption("依據波動率、布林通道寬度、均線乖離與短線動能進行全市場 PR 排名。")
+            st.caption("每日自動更新，APP 僅讀取預先運算完成的選股結果。")
 
-            st.warning("此模型偏向高波動動能股，適合短波段觀察，不代表投資建議。")
+            csv_path = "data/ai_momentum_top.csv"
 
-            top_n = st.slider("顯示前幾名", 5, 50, 20)
-            batch_size = st.selectbox("下載批次大小", [20, 30, 50, 80], index=2)
+            if not os.path.exists(csv_path):
+                st.warning("尚未產生 AI 選股資料，請先執行 GitHub Actions 或本地腳本。")
+            else:
+                df_ai = pd.read_csv(csv_path)
 
-            run_ai_scan = st.button("開始掃描全台股", use_container_width=True)
+                updated_at = df_ai["Updated_At"].iloc[0] if "Updated_At" in df_ai.columns else "未知"
+                st.info(f"資料更新時間：{updated_at}")
 
-            if run_ai_scan:
-                with st.spinner("正在掃描全市場，可能需要一段時間..."):
-                    df_ai = run_ai_momentum_scan(batch_size=batch_size)
+                top_n = st.slider("顯示前幾名", 5, 50, 20)
 
-                if df_ai.empty:
-                    st.error("沒有取得足夠資料，可能是 Yahoo Finance 暫時阻擋或網路異常。")
-                else:
-                    top_df = df_ai.head(top_n).copy()
+                show_cols = [
+                    "Rank",
+                    "ID",
+                    "Name",
+                    "Industry",
+                    "Close",
+                    "AI_Score",
+                    "F_Hist_Vol",
+                    "F_BB_Width",
+                    "F_P_to_MA60",
+                    "F_Trend_Strength",
+                    "F_P_to_MA20",
+                    "F_P_to_BBUpper",
+                    "F_ROC_10",
+                ]
 
-                    st.success(f"完成！共篩選出 {len(df_ai)} 檔符合條件股票。")
+                st.dataframe(
+                    df_ai[show_cols].head(top_n),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-                    st.dataframe(
-                        top_df,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "Rank": st.column_config.NumberColumn("排名"),
-                            "ID": st.column_config.TextColumn("代號"),
-                            "Name": st.column_config.TextColumn("股名"),
-                            "Close": st.column_config.NumberColumn("收盤價", format="%.2f"),
-                            "AI_Score": st.column_config.ProgressColumn(
-                                "AI 分數",
-                                min_value=0,
-                                max_value=100,
-                                format="%.2f",
-                            ),
-                            "F_Hist_Vol": st.column_config.NumberColumn("歷史波動率", format="%.2f%%"),
-                            "F_BB_Width": st.column_config.NumberColumn("布林寬度", format="%.2f%%"),
-                            "F_P_to_MA60": st.column_config.NumberColumn("距 MA60", format="%.2f%%"),
-                            "F_Trend_Strength": st.column_config.NumberColumn("趨勢強度", format="%.2f%%"),
-                            "F_P_to_MA20": st.column_config.NumberColumn("距 MA20", format="%.2f%%"),
-                            "F_P_to_BBUpper": st.column_config.NumberColumn("距布林上軌", format="%.2f%%"),
-                            "F_ROC_10": st.column_config.NumberColumn("10日動能", format="%.2f%%"),
-                        }
-                    )
+                csv = df_ai.to_csv(index=False, encoding="utf-8-sig")
 
-                    csv = top_df.to_csv(index=False, encoding="utf-8-sig")
-                    st.download_button(
-                        "下載 AI 選股結果 CSV",
-                        data=csv,
-                        file_name="ai_momentum_top_stocks.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
+                st.download_button(
+                    "下載 AI 選股結果 CSV",
+                    data=csv,
+                    file_name="ai_momentum_top.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
 
     except Exception as exc:
         st.error(f"分析失敗：{exc}")
