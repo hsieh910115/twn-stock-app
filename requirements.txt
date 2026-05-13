@@ -1,7 +1,9 @@
 streamlit
-yfinance
 pandas
 numpy
-altair
-plotly
+yfinance
 requests
+urllib3
+lxml
+html5lib
+beautifulsoup4
