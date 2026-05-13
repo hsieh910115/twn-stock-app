@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 import re
+import urllib3
 
 # =========================
 # 基本設定
@@ -1435,6 +1436,186 @@ line-height: 1.7;
     html += "</div>"
     return html
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+@st.cache_data(ttl=60 * 60 * 24)
+def get_tw_stock_list():
+    stock_dict = {}
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    for m in [2, 4]:
+        url = f"https://isin.twse.com.tw/isin/C_public.jsp?strMode={m}"
+        res = requests.get(url, headers=headers, verify=False, timeout=15)
+
+        df = pd.read_html(res.text)[0].iloc[1:]
+
+        for _, row in df.iterrows():
+            try:
+                code_name = str(row[0]).split()
+                if len(code_name) != 2:
+                    continue
+
+                code, name = code_name
+                cat = str(row[4])
+
+                if len(code) == 4 or code.startswith("00"):
+                    if cat not in ["權證", "牛熊證", "認購(售)權證"]:
+                        suffix = ".TW" if m == 2 else ".TWO"
+                        stock_dict[f"{code}{suffix}"] = {
+                            "name": name,
+                            "industry": cat,
+                        }
+            except Exception:
+                continue
+
+    return stock_dict
+
+
+@st.cache_data(ttl=60 * 30)
+def run_ai_momentum_scan(batch_size=50):
+    stock_dict = get_tw_stock_list()
+    all_tickers = list(stock_dict.keys())
+
+    records = []
+    progress = st.progress(0)
+    status = st.empty()
+
+    for i in range(0, len(all_tickers), batch_size):
+        batch = all_tickers[i:i + batch_size]
+        status.write(f"下載進度：{min(i + batch_size, len(all_tickers))} / {len(all_tickers)}")
+        progress.progress(min((i + batch_size) / len(all_tickers), 1.0))
+
+        try:
+            data = yf.download(
+                batch,
+                period="100d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=False,
+                progress=False,
+                threads=True,
+            )
+
+            for ticker in batch:
+                try:
+                    df = data[ticker] if len(batch) > 1 else data
+                    df = df.dropna()
+
+                    if df.empty or len(df) < 60:
+                        continue
+
+                    close = df["Close"]
+                    if len(close) < 60:
+                        continue
+
+                    ma5 = close.rolling(5).mean().iloc[-1]
+                    ma20 = close.rolling(20).mean().iloc[-1]
+                    ma60 = close.rolling(60).mean().iloc[-1]
+
+                    current_close = close.iloc[-1]
+
+                    daily_ret = close.pct_change()
+                    hist_vol = daily_ret.rolling(20).std().iloc[-1] * np.sqrt(252) * 100
+
+                    std20 = close.rolling(20).std().iloc[-1]
+                    bb_upper = ma20 + 2 * std20
+                    bb_lower = ma20 - 2 * std20
+                    bb_width = (bb_upper - bb_lower) / ma20 * 100
+
+                    p_to_ma60 = (current_close / ma60 - 1) * 100
+                    trend_str = (ma5 / ma60 - 1) * 100
+                    p_to_ma20 = (current_close / ma20 - 1) * 100
+                    p_to_bbupper = (current_close / bb_upper - 1) * 100
+                    roc_10 = (current_close - close.iloc[-11]) / close.iloc[-11] * 100
+
+                    values = [
+                        hist_vol,
+                        bb_width,
+                        p_to_ma60,
+                        trend_str,
+                        p_to_ma20,
+                        p_to_bbupper,
+                        roc_10,
+                    ]
+
+                    if any(pd.isna(v) or np.isinf(v) for v in values):
+                        continue
+
+                    records.append({
+                        "ID": ticker.replace(".TW", "").replace(".TWO", ""),
+                        "Ticker": ticker,
+                        "Name": stock_dict[ticker]["name"],
+                        "Industry": stock_dict[ticker]["industry"],
+                        "Close": current_close,
+                        "MA5": ma5,
+                        "F_Hist_Vol": hist_vol,
+                        "F_BB_Width": bb_width,
+                        "F_P_to_MA60": p_to_ma60,
+                        "F_Trend_Strength": trend_str,
+                        "F_P_to_MA20": p_to_ma20,
+                        "F_P_to_BBUpper": p_to_bbupper,
+                        "F_ROC_10": roc_10,
+                    })
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    progress.empty()
+    status.empty()
+
+    df_res = pd.DataFrame(records)
+    if df_res.empty:
+        return df_res
+
+    features = [
+        "F_Hist_Vol",
+        "F_BB_Width",
+        "F_P_to_MA60",
+        "F_Trend_Strength",
+        "F_P_to_MA20",
+        "F_P_to_BBUpper",
+        "F_ROC_10",
+    ]
+
+    weights = [29.08, 19.33, 10.39, 7.67, 7.26, 5.09, 4.25]
+
+    for f in features:
+        df_res[f"{f}_Rank"] = df_res[f].rank(pct=True)
+
+    df_res["AI_Score"] = 0.0
+    for f, w in zip(features, weights):
+        df_res["AI_Score"] += df_res[f"{f}_Rank"] * w
+
+    df_res["AI_Score"] = df_res["AI_Score"] / sum(weights) * 100
+
+    # 原邏輯：防守濾網，收盤價需站上 MA5
+    df_res = df_res[df_res["Close"] >= df_res["MA5"]].copy()
+
+    df_res = df_res.sort_values("AI_Score", ascending=False).reset_index(drop=True)
+    df_res.insert(0, "Rank", df_res.index + 1)
+
+    display_cols = [
+        "Rank",
+        "ID",
+        "Name",
+        "Industry",
+        "Close",
+        "AI_Score",
+        "F_Hist_Vol",
+        "F_BB_Width",
+        "F_P_to_MA60",
+        "F_Trend_Strength",
+        "F_P_to_MA20",
+        "F_P_to_BBUpper",
+        "F_ROC_10",
+    ]
+
+    return df_res[display_cols]
+
+
+
 
 # =========================
 # 介面
@@ -1550,8 +1731,8 @@ if analyze:
         c5.metric("20日年化波動", format_number(last["Volatility_20D"] * 100, 1, "%"))
         c6.metric("目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
 
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
-            ["總覽", "技術圖表", "基本面", "風險控管", "簡易回測", "策略執行", "模式差異"]
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+            ["總覽", "技術圖表", "基本面", "風險控管", "簡易回測", "策略執行", "模式差異", "AI選股"]
             )        
         with tab1:
             left, right = st.columns([1, 1])
@@ -1948,6 +2129,64 @@ if analyze:
                 "提醒：0～10 分是由原始規則分數轉換而來，方便快速閱讀；"
                 "分數越高代表越符合目前選擇的操作模式，但不代表未來報酬保證。"
             )
+
+
+        # ===== Tab 8：AI 動能選股 =====
+        with tab8:
+            st.header("🚀 AI 動能選股")
+            st.caption("依據波動率、布林通道寬度、均線乖離與短線動能進行全市場 PR 排名。")
+
+            st.warning("此模型偏向高波動動能股，適合短波段觀察，不代表投資建議。")
+
+            top_n = st.slider("顯示前幾名", 5, 50, 20)
+            batch_size = st.selectbox("下載批次大小", [20, 30, 50, 80], index=2)
+
+            run_ai_scan = st.button("開始掃描全台股", use_container_width=True)
+
+            if run_ai_scan:
+                with st.spinner("正在掃描全市場，可能需要一段時間..."):
+                    df_ai = run_ai_momentum_scan(batch_size=batch_size)
+
+                if df_ai.empty:
+                    st.error("沒有取得足夠資料，可能是 Yahoo Finance 暫時阻擋或網路異常。")
+                else:
+                    top_df = df_ai.head(top_n).copy()
+
+                    st.success(f"完成！共篩選出 {len(df_ai)} 檔符合條件股票。")
+
+                    st.dataframe(
+                        top_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Rank": st.column_config.NumberColumn("排名"),
+                            "ID": st.column_config.TextColumn("代號"),
+                            "Name": st.column_config.TextColumn("股名"),
+                            "Close": st.column_config.NumberColumn("收盤價", format="%.2f"),
+                            "AI_Score": st.column_config.ProgressColumn(
+                                "AI 分數",
+                                min_value=0,
+                                max_value=100,
+                                format="%.2f",
+                            ),
+                            "F_Hist_Vol": st.column_config.NumberColumn("歷史波動率", format="%.2f%%"),
+                            "F_BB_Width": st.column_config.NumberColumn("布林寬度", format="%.2f%%"),
+                            "F_P_to_MA60": st.column_config.NumberColumn("距 MA60", format="%.2f%%"),
+                            "F_Trend_Strength": st.column_config.NumberColumn("趨勢強度", format="%.2f%%"),
+                            "F_P_to_MA20": st.column_config.NumberColumn("距 MA20", format="%.2f%%"),
+                            "F_P_to_BBUpper": st.column_config.NumberColumn("距布林上軌", format="%.2f%%"),
+                            "F_ROC_10": st.column_config.NumberColumn("10日動能", format="%.2f%%"),
+                        }
+                    )
+
+                    csv = top_df.to_csv(index=False, encoding="utf-8-sig")
+                    st.download_button(
+                        "下載 AI 選股結果 CSV",
+                        data=csv,
+                        file_name="ai_momentum_top_stocks.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
 
     except Exception as exc:
         st.error(f"分析失敗：{exc}")
