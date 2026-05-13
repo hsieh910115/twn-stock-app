@@ -1085,17 +1085,33 @@ def make_price_chart(df: pd.DataFrame, rows: int = 260, close_overlay: pd.Series
         hovermode="x",
         spikedistance=-1,
         hoverdistance=100,
-        margin=dict(l=10, r=10, t=20, b=10),
+        margin=dict(l=10, r=10, t=40, b=10),
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.01,
+            y=1.02,
             xanchor="left",
             x=0,
             font=dict(size=11),
         ),
         xaxis_rangeslider_visible=False,
         template="plotly_white",
+    )
+    
+    fig.update_xaxes(
+        matches="x",
+        showspikes=True,
+        spikecolor="black",
+        spikemode="across",
+        spikesnap="cursor",
+        spikethickness=1,
+    )
+
+    fig.update_yaxes(
+        showspikes=True,
+        spikecolor="black",
+        spikemode="across",
+        spikethickness=1,
     )
 
     fig.update_yaxes(title_text="股價", row=1, col=1, fixedrange=False)
@@ -1574,23 +1590,6 @@ if analyze:
             st.dataframe(levels, hide_index=True, use_container_width=True)
 
         with tab2:
-            st.caption("紅K＝收漲、綠K＝收跌；黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；紫色虛線＝布林中線；灰色區域＝布林上下通道；下方新增 MACD 副圖。")
-
-            # 固定顯示最新交易日重點數值，避免滑動時 hover 資訊框遮住技術圖。
-            info_cols = st.columns(12)
-            info_cols[0].metric("收盤", format_number(last["Close"], 2))
-            info_cols[1].metric("MA5", format_number(last["MA5"], 2))
-            info_cols[2].metric("MA20", format_number(last["MA20"], 2))
-            info_cols[3].metric("MA60", format_number(last["MA60"], 2))
-            info_cols[4].metric("MA120", format_number(last["MA120"], 2))
-            info_cols[5].metric("MA240", format_number(last["MA240"], 2))
-            info_cols[6].metric("布林中線", format_number(last["BB_MID"], 2))
-            info_cols[7].metric("布林上軌", format_number(last["BB_UPPER"], 2))
-            info_cols[8].metric("布林下軌", format_number(last["BB_LOWER"], 2))
-            info_cols[9].metric("DIF", format_number(last["MACD_DIF"], 2))
-            info_cols[10].metric("MACD", format_number(last["MACD_SIGNAL"], 2))
-            info_cols[11].metric("Hist", format_number(last["MACD_HIST"], 2))
-
             st.plotly_chart(make_price_chart(df, close_overlay=full_df["Close"]), use_container_width=True)
             st.markdown("#### 指標明細")
             indicator_cols = ["Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240", "BB_UPPER", "BB_MID", "BB_LOWER", "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14", "Volume_Ratio", "Return_5D", "Return_20D"]
@@ -1603,7 +1602,7 @@ if analyze:
             pe = safe_float(info.get("trailingPE"))
 
             # FinMind 的 dividend_yield 已經是 %
-            dividend_yield = safe_float(info.get("dividendYield"))
+            dividend_yield = dividend_yield_pct(info, last["Close"])
 
             # 用 股價 / PE 反推 EPS
             eps = np.nan
