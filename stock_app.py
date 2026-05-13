@@ -1471,19 +1471,16 @@ def get_tw_stock_list():
 
 
 @st.cache_data(ttl=60 * 30)
-def run_ai_momentum_scan(batch_size=50):
+def run_ai_momentum_scan(batch_size=20):
     stock_dict = get_tw_stock_list()
-    #all_tickers = list(stock_dict.keys())
-    all_tickers = list(stock_dict.keys())[:100]
+
+    # 建議先限制前 300 檔，避免 Streamlit Cloud crash
+    all_tickers = list(stock_dict.keys())[:300]
 
     records = []
-    progress = st.progress(0)
-    status = st.empty()
 
     for i in range(0, len(all_tickers), batch_size):
         batch = all_tickers[i:i + batch_size]
-        status.write(f"下載進度：{min(i + batch_size, len(all_tickers))} / {len(all_tickers)}")
-        progress.progress(min((i + batch_size) / len(all_tickers), 1.0))
 
         try:
             data = yf.download(
@@ -1493,7 +1490,7 @@ def run_ai_momentum_scan(batch_size=50):
                 group_by="ticker",
                 auto_adjust=False,
                 progress=False,
-                threads=True,
+                threads=False,
             )
 
             for ticker in batch:
@@ -1563,10 +1560,8 @@ def run_ai_momentum_scan(batch_size=50):
         except Exception:
             continue
 
-    progress.empty()
-    status.empty()
-
     df_res = pd.DataFrame(records)
+
     if df_res.empty:
         return df_res
 
@@ -1586,6 +1581,7 @@ def run_ai_momentum_scan(batch_size=50):
         df_res[f"{f}_Rank"] = df_res[f].rank(pct=True)
 
     df_res["AI_Score"] = 0.0
+
     for f, w in zip(features, weights):
         df_res["AI_Score"] += df_res[f"{f}_Rank"] * w
 
