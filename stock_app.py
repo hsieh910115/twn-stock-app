@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
+import re
 
 # =========================
 # 基本設定
@@ -1256,7 +1257,14 @@ def mode_difference_table() -> pd.DataFrame:
         ],
     })
 
-import re
+# ===== 更新公告文字 =====
+CHANGELOG_TEXT = """
+2026.05.13 15:33 更新 UI 介面，新增底部更新公告區塊
+2026.05.13 14:20 修正觀察清單殖利率顯示錯誤
+2026.05.12 22:10 修正不同資料期間導致最新收盤價錯位問題
+2026.05.11 18:30 新增短線/波段與長線/存股模式切換
+"""
+
 def render_changelog(changelog_text):
     items = []
 
@@ -1875,18 +1883,8 @@ if run_watchlist:
 
 st.divider()
 
-# ===== 更新公告原始文字 =====
-CHANGELOG_TEXT = """
-2026.05.13 15:33 更新 UI 介面，新增底部更新公告區塊
-2026.05.13 14:20 修正觀察清單殖利率顯示錯誤
-2026.05.12 22:10 修正不同資料期間導致最新收盤價錯位問題
-2026.05.11 18:30 新增短線/波段與長線/存股模式切換
-"""
-
 # ===== 底部更新公告 =====
-st.markdown("---")
-
-with st.expander("📢 更新公告 / Changelog", expanded=False):
+with st.expander("📢 更新公告", expanded=False):
     st.markdown(
         render_changelog(CHANGELOG_TEXT),
         unsafe_allow_html=True
