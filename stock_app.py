@@ -1400,15 +1400,18 @@ def render_changelog(changelog_text):
 
     for line in changelog_text.strip().splitlines():
         line = line.strip()
+
         if not line:
             continue
 
-        match = re.match(r"(\d{4})\.(\d{2})\.(\d{2})\s+(\d{2}:\d{2})\s*(.+)", line)
+        # 只解析日期
+        match = re.match(r"(\d{4})\.(\d{2})\.(\d{2})\s+(.+)", line)
 
         if match:
-            year, month, day, time, content = match.groups()
+            year, month, day, content = match.groups()
             date = f"{year}-{month}-{day}"
-            items.append((date, time, content))
+
+            items.append((date, content))
 
     html = """
 <div style="
@@ -1422,12 +1425,13 @@ line-height: 1.7;
 ">
 """
 
-    for date, time, content in items:
+    for date, content in items:
         html += f"""
 <div style="margin-bottom: 14px;">
     <div style="font-weight: 700; color: #111827;">
-        📌 {date} {time}
+        📌 {date}
     </div>
+
     <div style="color: #374151; margin-left: 4px;">
         {content}
     </div>
@@ -1435,6 +1439,7 @@ line-height: 1.7;
 """
 
     html += "</div>"
+
     return html
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
