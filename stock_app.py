@@ -1473,7 +1473,8 @@ def get_tw_stock_list():
 @st.cache_data(ttl=60 * 30)
 def run_ai_momentum_scan(batch_size=50):
     stock_dict = get_tw_stock_list()
-    all_tickers = list(stock_dict.keys())
+    #all_tickers = list(stock_dict.keys())
+    all_tickers = list(stock_dict.keys())[:100]
 
     records = []
     progress = st.progress(0)
