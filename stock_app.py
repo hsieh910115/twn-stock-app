@@ -1281,28 +1281,28 @@ def render_changelog(changelog_text):
             items.append((date, time, content))
 
     html = """
-    <div style="
-        max-height: 220px;
-        overflow-y: auto;
-        padding: 12px 16px;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        background-color: #fafafa;
-        line-height: 1.7;
-    ">
-    """
+<div style="
+max-height: 220px;
+overflow-y: auto;
+padding: 12px 16px;
+border: 1px solid #e5e7eb;
+border-radius: 12px;
+background-color: #fafafa;
+line-height: 1.7;
+">
+"""
 
     for date, time, content in items:
         html += f"""
-        <div style="margin-bottom: 14px;">
-            <div style="font-weight: 700; color: #111827;">
-                📌 {date} {time}
-            </div>
-            <div style="color: #374151; margin-left: 4px;">
-                {content}
-            </div>
-        </div>
-        """
+<div style="margin-bottom: 14px;">
+    <div style="font-weight: 700; color: #111827;">
+        📌 {date} {time}
+    </div>
+    <div style="color: #374151; margin-left: 4px;">
+        {content}
+    </div>
+</div>
+"""
 
     html += "</div>"
     return html
