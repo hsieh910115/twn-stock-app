@@ -1390,7 +1390,7 @@ def mode_difference_table() -> pd.DataFrame:
 # ===== 更新公告文字 =====
 CHANGELOG_TEXT = """
 2026.05.14 00:50 技術圖表新增副圖指標MACD
-2026.05.13 11:25 新增底部更新公告區塊
+2026.05.13 11:25 新增底部更新公告區塊、意見回饋表單
 """
 
 def render_changelog(changelog_text):
