@@ -2006,23 +2006,23 @@ if run_watchlist:
 
 st.divider()
 
-# ===== 底部更新公告 =====
 with st.expander("下載目前分析資料"):
     csv = df.to_csv(index=True).encode("utf-8-sig")
     st.download_button("下載技術指標 CSV", data=csv, file_name=f"{display_code(resolved_ticker)}_analysis.csv", mime="text/csv")
 
-
+# ===== 底部更新公告 =====
 with st.expander("📢 更新公告", expanded=False):
     st.markdown(
         render_changelog(CHANGELOG_TEXT),
         unsafe_allow_html=True
     )
-    
 # ===== 意見回饋 =====
-FEEDBACK_FORM_URL = "你的 Google 表單連結"
-st.link_button(
-    "💬 意見回饋",
-    FEEDBACK_FORM_URL,
-    use_container_width=True
-)
-st.caption("如果有任何建議、功能想法或發現問題，歡迎匿名留下回饋。")
+FEEDBACK_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSeUretKEOaprGWpM7Gp5SKFAOjoc8RUhRTnB2fOwdksg7pMcA/viewform?usp=dialog"
+with st.expander("💬 意見回饋", expanded=False):
+    st.caption("如果有任何建議、功能想法或發現問題，歡迎匿名留下回饋。")
+
+    st.link_button(
+        "前往匿名回饋表單",
+        FEEDBACK_FORM_URL,
+        use_container_width=True
+    )
