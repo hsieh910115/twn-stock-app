@@ -3,7 +3,8 @@ name: Update AI Stock Screener
 on:
   schedule:
     # 台灣時間晚上 8:30 = UTC 12:30
-    - cron: "30 12 * * 1-5"
+    #- cron: "30 12 * * 1-5"
+    - cron: "20 18 * * 0-4"
   workflow_dispatch:
 
 permissions:
