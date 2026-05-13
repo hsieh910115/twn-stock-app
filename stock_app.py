@@ -1465,8 +1465,7 @@ def get_tw_stock_list():
 # 介面
 # =========================
 st.title("📈 台股投資分析")
-st.caption("分析工具：即時更新股價、技術面、基本面、風險控管、簡易回測與觀察清單。")
-
+st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
 with st.sidebar:
     st.header("股票設定")
     raw_code = st.text_input("股票代碼", value="2330", help="可輸入 2330、8069、0050，也可輸入 2330.TW/8069.TWO")
