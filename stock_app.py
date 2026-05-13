@@ -1984,13 +1984,13 @@ if analyze:
 
 
         with tab8:
-            st.header("🚀 AI 動能選股")
-            st.caption("每日自動更新，APP 僅讀取預先運算完成的選股結果。")
+            st.header("AI 選股")
+            st.caption("每日自動更新")
 
             csv_path = "data/ai_momentum_top.csv"
 
             if not os.path.exists(csv_path):
-                st.warning("尚未產生 AI 選股資料，請先執行 GitHub Actions 或本地腳本。")
+                st.warning("尚未產生 AI 選股資料")
             else:
                 df_ai = pd.read_csv(csv_path)
 
