@@ -1949,10 +1949,6 @@ if analyze:
                 "分數越高代表越符合目前選擇的操作模式，但不代表未來報酬保證。"
             )
 
-        with st.expander("下載目前分析資料"):
-            csv = df.to_csv(index=True).encode("utf-8-sig")
-            st.download_button("下載技術指標 CSV", data=csv, file_name=f"{display_code(resolved_ticker)}_analysis.csv", mime="text/csv")
-
     except Exception as exc:
         st.error(f"分析失敗：{exc}")
         st.info("請確認網路連線、股票代碼，或稍後再試。若是上櫃股票，直接輸入 8069 或 8069.TWO 都可以。")
@@ -2011,6 +2007,11 @@ if run_watchlist:
 st.divider()
 
 # ===== 底部更新公告 =====
+with st.expander("下載目前分析資料"):
+    csv = df.to_csv(index=True).encode("utf-8-sig")
+    st.download_button("下載技術指標 CSV", data=csv, file_name=f"{display_code(resolved_ticker)}_analysis.csv", mime="text/csv")
+
+
 with st.expander("📢 更新公告", expanded=False):
     st.markdown(
         render_changelog(CHANGELOG_TEXT),
