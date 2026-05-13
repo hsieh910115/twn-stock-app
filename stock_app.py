@@ -1256,6 +1256,50 @@ def mode_difference_table() -> pd.DataFrame:
         ],
     })
 
+import re
+def render_changelog(changelog_text):
+    items = []
+
+    for line in changelog_text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        match = re.match(r"(\d{4})\.(\d{2})\.(\d{2})\s+(\d{2}:\d{2})\s*(.+)", line)
+
+        if match:
+            year, month, day, time, content = match.groups()
+            date = f"{year}-{month}-{day}"
+            items.append((date, time, content))
+
+    html = """
+    <div style="
+        max-height: 220px;
+        overflow-y: auto;
+        padding: 12px 16px;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background-color: #fafafa;
+        line-height: 1.7;
+    ">
+    """
+
+    for date, time, content in items:
+        html += f"""
+        <div style="margin-bottom: 14px;">
+            <div style="font-weight: 700; color: #111827;">
+                📌 {date} {time}
+            </div>
+            <div style="color: #374151; margin-left: 4px;">
+                {content}
+            </div>
+        </div>
+        """
+
+    html += "</div>"
+    return html
+
+
 # =========================
 # 介面
 # =========================
@@ -1830,4 +1874,22 @@ if run_watchlist:
         st.info("沒有成功取得任何觀察清單資料。")
 
 st.divider()
+
+# ===== 更新公告原始文字 =====
+CHANGELOG_TEXT = """
+2026.05.13 15:33 更新 UI 介面，新增底部更新公告區塊
+2026.05.13 14:20 修正觀察清單殖利率顯示錯誤
+2026.05.12 22:10 修正不同資料期間導致最新收盤價錯位問題
+2026.05.11 18:30 新增短線/波段與長線/存股模式切換
+"""
+
+# ===== 底部更新公告 =====
+st.markdown("---")
+
+with st.expander("📢 更新公告 / Changelog", expanded=False):
+    st.markdown(
+        render_changelog(CHANGELOG_TEXT),
+        unsafe_allow_html=True
+    )
+
 st.caption("Developed by hsieh910115")
