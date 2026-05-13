@@ -2020,13 +2020,9 @@ with st.expander("📢 更新公告", expanded=False):
     
 # ===== 意見回饋 =====
 FEEDBACK_FORM_URL = "你的 Google 表單連結"
-
-st.markdown("---")
-st.markdown("### 💬 意見回饋")
-st.caption("如果有任何建議、功能想法或發現問題，歡迎匿名留下回饋。")
-
 st.link_button(
-    "前往匿名回饋表單",
+    "💬 意見回饋",
     FEEDBACK_FORM_URL,
     use_container_width=True
 )
+st.caption("如果有任何建議、功能想法或發現問題，歡迎匿名留下回饋。")
