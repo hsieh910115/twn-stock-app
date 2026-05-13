@@ -901,60 +901,92 @@ def _opt_stats(bt: Dict) -> Dict:
     }
 
 def make_price_chart(df: pd.DataFrame, rows: int = 260, close_overlay: pd.Series = None):
-    """專業 K 線圖：台股紅漲綠跌、疊加 MA 與布林灰色區域，並附成交量。"""
+    """專業 K 線圖：台股紅漲綠跌、疊加 MA、布林通道、成交量與 MACD 副圖。"""
     plot = df.tail(rows).copy().reset_index()
     date_col = plot.columns[0]
     plot = plot.rename(columns={date_col: "日期"})
 
     fig = make_subplots(
-        rows=2,
+        rows=3,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.03,
-        row_heights=[0.72, 0.28],
-        specs=[[{"secondary_y": False}], [{"secondary_y": False}]],
+        vertical_spacing=0.025,
+        row_heights=[0.62, 0.18, 0.20],
+        specs=[
+            [{"secondary_y": False}],
+            [{"secondary_y": False}],
+            [{"secondary_y": False}],
+        ],
     )
 
-    # 布林通道灰色區域：先畫上軌，再用下軌填滿到上軌
+    # =========================
+    # 布林通道：上下軌灰色區域 + 紫色中線
+    # =========================
     if {"BB_UPPER", "BB_LOWER", "BB_MID"}.issubset(plot.columns):
         fig.add_trace(
             go.Scatter(
-                x=plot["日期"], y=plot["BB_UPPER"], mode="lines",
+                x=plot["日期"],
+                y=plot["BB_UPPER"],
+                mode="lines",
                 line=dict(color="rgba(120,120,120,0.45)", width=1, dash="dot"),
-                name="布林上軌", hovertemplate="%{x}<br>布林上軌 %{y:,.2f}<extra></extra>",
-            ), row=1, col=1
+                name="布林上軌",
+                hovertemplate="布林上軌 %{y:,.2f}<extra></extra>",
+            ),
+            row=1,
+            col=1,
         )
         fig.add_trace(
             go.Scatter(
-                x=plot["日期"], y=plot["BB_LOWER"], mode="lines",
+                x=plot["日期"],
+                y=plot["BB_LOWER"],
+                mode="lines",
                 line=dict(color="rgba(120,120,120,0.45)", width=1, dash="dot"),
-                fill="tonexty", fillcolor="rgba(160,160,160,0.18)",
-                name="布林下軌", hovertemplate="%{x}<br>布林下軌 %{y:,.2f}<extra></extra>",
-            ), row=1, col=1
+                fill="tonexty",
+                fillcolor="rgba(160,160,160,0.18)",
+                name="布林下軌",
+                hovertemplate="布林下軌 %{y:,.2f}<extra></extra>",
+            ),
+            row=1,
+            col=1,
         )
         fig.add_trace(
             go.Scatter(
-                x=plot["日期"], y=plot["BB_MID"], mode="lines",
-                line=dict(color="rgba(120,120,120,0.8)", width=1.2, dash="dash"),
-                name="布林中線", hovertemplate="%{x}<br>布林中線 %{y:,.2f}<extra></extra>",
-            ), row=1, col=1
+                x=plot["日期"],
+                y=plot["BB_MID"],
+                mode="lines",
+                line=dict(color="#B455FF", width=2, dash="dash"),
+                name="布林中線",
+                hovertemplate="布林中線 %{y:,.2f}<extra></extra>",
+            ),
+            row=1,
+            col=1,
         )
 
+    # =========================
     # K 線：台股慣例，漲紅跌綠
+    # =========================
     fig.add_trace(
         go.Candlestick(
             x=plot["日期"],
-            open=plot["Open"], high=plot["High"], low=plot["Low"], close=plot["Close"],
+            open=plot["Open"],
+            high=plot["High"],
+            low=plot["Low"],
+            close=plot["Close"],
             name="K線",
             increasing=dict(line=dict(color="#D32F2F"), fillcolor="#D32F2F"),
             decreasing=dict(line=dict(color="#00A65A"), fillcolor="#00A65A"),
             hovertemplate=(
-                "%{x}<br>開盤 %{open:,.2f}<br>最高 %{high:,.2f}"
+                "開盤 %{open:,.2f}<br>最高 %{high:,.2f}"
                 "<br>最低 %{low:,.2f}<br>收盤 %{close:,.2f}<extra></extra>"
             ),
-        ), row=1, col=1
+        ),
+        row=1,
+        col=1,
     )
 
+    # =========================
+    # 均線
+    # =========================
     ma_specs = [
         ("MA5", "週線 MA5", "#FFD400"),
         ("MA20", "月線 MA20", "#00A65A"),
@@ -962,52 +994,134 @@ def make_price_chart(df: pd.DataFrame, rows: int = 260, close_overlay: pd.Series
         ("MA120", "半年線 MA120", "#0D47A1"),
         ("MA240", "年線 MA240", "#8B5A2B"),
     ]
-    for col, name, color in ma_specs:
-        if col in plot.columns:
+    for col_name, display_name, color in ma_specs:
+        if col_name in plot.columns:
             fig.add_trace(
                 go.Scatter(
-                    x=plot["日期"], y=plot[col], mode="lines",
-                    line=dict(color=color, width=1.6),
-                    name=name, hovertemplate=f"%{{x}}<br>{name} %{{y:,.2f}}<extra></extra>",
-                ), row=1, col=1
+                    x=plot["日期"],
+                    y=plot[col_name],
+                    mode="lines",
+                    line=dict(color=color, width=1.8),
+                    name=display_name,
+                    hovertemplate=f"{display_name} %{{y:,.2f}}<extra></extra>",
+                ),
+                row=1,
+                col=1,
             )
 
-    # 成交量：漲紅跌綠
+    # =========================
+    # 成交量
+    # =========================
     volume_colors = np.where(plot["Close"] >= plot["Open"], "#D32F2F", "#00A65A")
     fig.add_trace(
         go.Bar(
-            x=plot["日期"], y=plot["Volume"], name="成交量",
-            marker_color=volume_colors, opacity=0.45,
-            hovertemplate="%{x}<br>成交量 %{y:,.0f}<extra></extra>",
-        ), row=2, col=1
+            x=plot["日期"],
+            y=plot["Volume"],
+            name="成交量",
+            marker_color=volume_colors,
+            opacity=0.45,
+            hovertemplate="成交量 %{y:,.0f}<extra></extra>",
+        ),
+        row=2,
+        col=1,
     )
 
-    # if close_overlay is not None:
-    #     overlay = close_overlay.tail(rows + 5).reset_index()
-    #     overlay.columns = ["日期", "收盤價"]
-    #     fig.add_trace(
-    #         go.Scatter(
-    #             x=overlay["日期"],
-    #             y=overlay["收盤價"],
-    #             mode="lines",
-    #             line=dict(color="#000000", width=1.8),
-    #             name="收盤價",
-    #             hovertemplate="%{x}<br>收盤 %{y:,.2f}<extra></extra>",
-    #         ), row=1, col=1
-    #     )    
+    # =========================
+    # MACD 副圖：DIF / MACD Signal / Histogram / 零軸
+    # =========================
+    if {"MACD_DIF", "MACD_SIGNAL", "MACD_HIST"}.issubset(plot.columns):
+        hist_colors = np.where(plot["MACD_HIST"] >= 0, "#16A34A", "#EF4444")
 
+        fig.add_trace(
+            go.Bar(
+                x=plot["日期"],
+                y=plot["MACD_HIST"],
+                name="Histogram",
+                marker_color=hist_colors,
+                opacity=0.8,
+                hovertemplate="Histogram %{y:,.2f}<extra></extra>",
+            ),
+            row=3,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=plot["日期"],
+                y=plot["MACD_DIF"],
+                mode="lines",
+                line=dict(color="#1E90FF", width=2),
+                name="DIF",
+                hovertemplate="DIF %{y:,.2f}<extra></extra>",
+            ),
+            row=3,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=plot["日期"],
+                y=plot["MACD_SIGNAL"],
+                mode="lines",
+                line=dict(color="#FF8C00", width=2),
+                name="MACD",
+                hovertemplate="MACD %{y:,.2f}<extra></extra>",
+            ),
+            row=3,
+            col=1,
+        )
+        fig.add_hline(
+            y=0,
+            line_dash="dot",
+            line_color="gray",
+            opacity=0.7,
+            row=3,
+            col=1,
+        )
 
+    # =========================
+    # Layout：hover 不再用巨大 unified box，改為十字線對齊
+    # =========================
     fig.update_layout(
-        height=650,
-        hovermode="x unified",
+        height=900,
+        hovermode="x",
+        spikedistance=-1,
+        hoverdistance=100,
         margin=dict(l=10, r=10, t=20, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.01,
+            xanchor="left",
+            x=0,
+            font=dict(size=11),
+        ),
         xaxis_rangeslider_visible=False,
         template="plotly_white",
     )
+
     fig.update_yaxes(title_text="股價", row=1, col=1, fixedrange=False)
     fig.update_yaxes(title_text="成交量", row=2, col=1, fixedrange=False)
-    fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor")
+    fig.update_yaxes(title_text="MACD", row=3, col=1, fixedrange=False)
+
+    fig.update_xaxes(
+        showspikes=True,
+        spikecolor="black",
+        spikesnap="cursor",
+        spikemode="across",
+        spikethickness=1,
+        showline=True,
+        linewidth=1,
+        linecolor="rgba(0,0,0,0.15)",
+    )
+    fig.update_yaxes(
+        showspikes=True,
+        spikecolor="black",
+        spikemode="across",
+        spikethickness=1,
+        showline=True,
+        linewidth=1,
+        linecolor="rgba(0,0,0,0.15)",
+    )
+
     return fig
 
 def make_backtest_chart(bt_df: pd.DataFrame):
@@ -1259,7 +1373,10 @@ def mode_difference_table() -> pd.DataFrame:
 
 # ===== 更新公告文字 =====
 CHANGELOG_TEXT = """
-2026.05.13 23:25 更新 UI 介面，新增底部更新公告區塊
+2026.05.13 15:33 更新 UI 介面，新增底部更新公告區塊
+2026.05.13 14:20 修正觀察清單殖利率顯示錯誤
+2026.05.12 22:10 修正不同資料期間導致最新收盤價錯位問題
+2026.05.11 18:30 新增短線/波段與長線/存股模式切換
 """
 
 def render_changelog(changelog_text):
@@ -1278,28 +1395,28 @@ def render_changelog(changelog_text):
             items.append((date, time, content))
 
     html = """
-<div style="
-max-height: 220px;
-overflow-y: auto;
-padding: 12px 16px;
-border: 1px solid #e5e7eb;
-border-radius: 12px;
-background-color: #fafafa;
-line-height: 1.7;
-">
-"""
+    <div style="
+        max-height: 220px;
+        overflow-y: auto;
+        padding: 12px 16px;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background-color: #fafafa;
+        line-height: 1.7;
+    ">
+    """
 
     for date, time, content in items:
         html += f"""
-<div style="margin-bottom: 14px;">
-    <div style="font-weight: 700; color: #111827;">
-        📌 {date} {time}
-    </div>
-    <div style="color: #374151; margin-left: 4px;">
-        {content}
-    </div>
-</div>
-"""
+        <div style="margin-bottom: 14px;">
+            <div style="font-weight: 700; color: #111827;">
+                📌 {date} {time}
+            </div>
+            <div style="color: #374151; margin-left: 4px;">
+                {content}
+            </div>
+        </div>
+        """
 
     html += "</div>"
     return html
@@ -1457,7 +1574,23 @@ if analyze:
             st.dataframe(levels, hide_index=True, use_container_width=True)
 
         with tab2:
-            st.caption("紅K＝收漲、綠K＝收跌；黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；灰色區域＝布林上下通道，灰線＝布林上中下軌。")
+            st.caption("紅K＝收漲、綠K＝收跌；黃色＝週線MA5、綠色＝月線MA20、淺藍＝季線MA60、深藍＝半年線MA120、棕色＝年線MA240；紫色虛線＝布林中線；灰色區域＝布林上下通道；下方新增 MACD 副圖。")
+
+            # 固定顯示最新交易日重點數值，避免滑動時 hover 資訊框遮住技術圖。
+            info_cols = st.columns(12)
+            info_cols[0].metric("收盤", format_number(last["Close"], 2))
+            info_cols[1].metric("MA5", format_number(last["MA5"], 2))
+            info_cols[2].metric("MA20", format_number(last["MA20"], 2))
+            info_cols[3].metric("MA60", format_number(last["MA60"], 2))
+            info_cols[4].metric("MA120", format_number(last["MA120"], 2))
+            info_cols[5].metric("MA240", format_number(last["MA240"], 2))
+            info_cols[6].metric("布林中線", format_number(last["BB_MID"], 2))
+            info_cols[7].metric("布林上軌", format_number(last["BB_UPPER"], 2))
+            info_cols[8].metric("布林下軌", format_number(last["BB_LOWER"], 2))
+            info_cols[9].metric("DIF", format_number(last["MACD_DIF"], 2))
+            info_cols[10].metric("MACD", format_number(last["MACD_SIGNAL"], 2))
+            info_cols[11].metric("Hist", format_number(last["MACD_HIST"], 2))
+
             st.plotly_chart(make_price_chart(df, close_overlay=full_df["Close"]), use_container_width=True)
             st.markdown("#### 指標明細")
             indicator_cols = ["Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240", "BB_UPPER", "BB_MID", "BB_LOWER", "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14", "Volume_Ratio", "Return_5D", "Return_20D"]
@@ -1886,5 +2019,3 @@ with st.expander("📢 更新公告", expanded=False):
         render_changelog(CHANGELOG_TEXT),
         unsafe_allow_html=True
     )
-
-st.caption("Developed by hsieh910115")
