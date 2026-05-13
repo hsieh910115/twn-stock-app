@@ -1238,7 +1238,7 @@ def strategy_execution_advice(df: pd.DataFrame, strategy_name: str, params: Opti
         key_level = ma_s
 
         if close > ma_s and ma_s > ma_l:
-            status = "可持有／符合進場條件"
+            status = "可持有"
             action = f"目前已符合策略條件。若尚未進場，可等下一交易日確認未跌破 MA{short} 再考慮進場。"
         else:
             action = f"目前尚未符合條件，可等待收盤價重新站上 MA{short}，且 MA{short} 高於 MA{long}。"
@@ -1265,7 +1265,7 @@ def strategy_execution_advice(df: pd.DataFrame, strategy_name: str, params: Opti
         key_level = ma_s
 
         if close > ma_s and ma_s > ma_l:
-            status = "可持有／符合進場條件"
+            status = "可持有"
             action = f"目前符合長線波段條件，可視為持有區；若尚未進場，建議等回測 MA{short} 不破或隔日續強再進。"
         else:
             action = f"目前尚未符合長線條件，可等待收盤價站回 MA{short} 且 MA{short} 高於 MA{long}。"
@@ -1291,7 +1291,7 @@ def strategy_execution_advice(df: pd.DataFrame, strategy_name: str, params: Opti
         key_level = ema_s
 
         if ema_f > ema_s and rsi > rsi_enter:
-            status = "可持有／符合進場條件"
+            status = "可持有"
             action = "目前動能條件成立。若尚未進場，可等下一根K線仍維持 EMA 多頭排列再進。"
         else:
             action = f"目前動能尚未完整成立，可等待 EMA{fast} 上穿 EMA{slow} 且 RSI 站上 {rsi_enter}。"
@@ -1313,7 +1313,7 @@ def strategy_execution_advice(df: pd.DataFrame, strategy_name: str, params: Opti
         key_level = breakout_high
 
         if close > breakout_high and vol_ratio >= volume_min:
-            status = "可進場／突破成立"
+            status = "可進場"
             action = "目前已符合突破進場條件。若要執行，應特別設定停損，避免假突破。"
         else:
             action = f"目前尚未突破。可等待收盤價突破 {breakout_high:.2f}，且量比大於 {volume_min}。"
@@ -1332,7 +1332,7 @@ def strategy_execution_advice(df: pd.DataFrame, strategy_name: str, params: Opti
         key_level = ma20
 
         if rsi < rsi_low:
-            status = "可觀察反彈進場"
+            status = "觀察反彈"
             action = "目前 RSI 進入低檔反彈區，但仍需注意是否為下跌趨勢中的弱反彈。"
         else:
             action = f"目前 RSI 尚未低於 {rsi_low}，不符合反彈策略進場條件。"
@@ -1348,7 +1348,7 @@ def strategy_execution_advice(df: pd.DataFrame, strategy_name: str, params: Opti
         key_level = bb_lower
 
         if close < bb_lower:
-            status = "可觀察反彈進場"
+            status = "觀察反彈"
             action = "目前已跌破布林下軌，符合均值回歸進場條件，但需避免接到趨勢下跌。"
         else:
             action = f"目前尚未跌破布林下軌，可等待價格接近或跌破 {bb_lower:.2f}。"
@@ -1984,13 +1984,52 @@ if analyze:
 
 
         with tab8:
-            st.header("AI 選股")
-            st.caption("每日自動更新")
+            st.header(" AI 妖股動能選股")
+            st.caption("每日 18:00 自動更新")
+
+            st.warning(
+                "此模型屬於「妖股 / 飆股 / 動能股」選股邏輯，目標是尋找短線活性高、趨勢強、價格具爆發力的股票，"
+            )
+
+            with st.expander("📌 選股邏輯說明：這是什麼類型的策略？", expanded=True):
+                st.markdown("""
+                這套 AI 選股模型屬於 **動能型選股策略（Momentum Screener）**，主要尋找：
+
+                - 🚀 **妖股**：波動明顯放大、短線價格快速噴出  
+                - 🔥 **飆股**：股價遠離均線，趨勢已經明顯成型  
+                - 📈 **強勢動能股**：短期漲幅強，且仍站在 5 日線之上  
+
+                它不是價值投資，也不是找便宜股，而是偏向尋找「市場目前最強、最活躍、最有攻擊性的股票」。
+                """)
+
+            with st.expander("🧠 七大選股指標說明", expanded=False):
+                st.markdown("""
+                **1. F_Hist_Vol（歷史波動率）**  
+                計算近 20 日年化波動率，用來衡量股價活性。波動越高，代表股性越活潑，越符合妖股特徵。
+
+                **2. F_BB_Width（布林通道寬度）**  
+                衡量布林通道開口大小。通道擴張通常代表波動放大，可能進入趨勢發動階段。
+
+                **3. F_P_to_MA60 / F_P_to_MA20（均線乖離率）**  
+                計算股價與季線、月線的距離，用來判斷是否已脫離底部並形成趨勢。
+
+                **4. F_Trend_Strength（均線發散度）**  
+                使用 MA5 與 MA60 的距離判斷短線趨勢是否明顯強於中長期趨勢。
+
+                **5. F_P_to_BBUpper（距離布林上軌）**  
+                衡量股價是否貼近布林上軌。強勢飆股常會沿著布林上軌上漲。
+
+                **6. F_ROC_10（10 日動能）**  
+                計算近 10 個交易日漲幅，代表短線價格爆發力。
+
+                **7. Close >= MA5（5 日線防守濾網）**  
+                若收盤價跌破 MA5，代表短線動能可能轉弱，即使分數高也會被剔除。
+                """)
 
             csv_path = "data/ai_momentum_top.csv"
 
             if not os.path.exists(csv_path):
-                st.warning("尚未產生 AI 選股資料")
+                st.warning("尚未產生 AI 選股資料，請先執行 GitHub Actions 或本地更新腳本。")
             else:
                 df_ai = pd.read_csv(csv_path)
 
@@ -2015,16 +2054,44 @@ if analyze:
                     "F_ROC_10",
                 ]
 
+                df_show = df_ai[show_cols].head(top_n).copy()
+
+                st.subheader("🎯 AI 妖股動能排行")
+
                 st.dataframe(
-                    df_ai[show_cols].head(top_n),
+                    df_show,
                     use_container_width=True,
                     hide_index=True,
+                    column_config={
+                        "Rank": st.column_config.NumberColumn("排名"),
+                        "ID": st.column_config.TextColumn("代號"),
+                        "Name": st.column_config.TextColumn("股名"),
+                        "Industry": st.column_config.TextColumn("產業"),
+                        "Close": st.column_config.NumberColumn("收盤價", format="%.2f"),
+                        "AI_Score": st.column_config.ProgressColumn(
+                            "AI 動能分數",
+                            min_value=0,
+                            max_value=100,
+                            format="%.2f",
+                        ),
+                        "F_Hist_Vol": st.column_config.NumberColumn("歷史波動率", format="%.2f%%"),
+                        "F_BB_Width": st.column_config.NumberColumn("布林寬度", format="%.2f%%"),
+                        "F_P_to_MA60": st.column_config.NumberColumn("距 MA60", format="%.2f%%"),
+                        "F_Trend_Strength": st.column_config.NumberColumn("趨勢強度", format="%.2f%%"),
+                        "F_P_to_MA20": st.column_config.NumberColumn("距 MA20", format="%.2f%%"),
+                        "F_P_to_BBUpper": st.column_config.NumberColumn("距布林上軌", format="%.2f%%"),
+                        "F_ROC_10": st.column_config.NumberColumn("10日動能", format="%.2f%%"),
+                    }
+                )
+
+                st.caption(
+                    "AI 動能分數越高，代表該股票在全市場中具有較高的波動、趨勢、乖離與短線動能排名。"
                 )
 
                 csv = df_ai.to_csv(index=False, encoding="utf-8-sig")
 
                 st.download_button(
-                    "下載 AI 選股結果 CSV",
+                    "下載 AI 妖股動能選股結果 CSV",
                     data=csv,
                     file_name="ai_momentum_top.csv",
                     mime="text/csv",
