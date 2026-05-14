@@ -2013,8 +2013,13 @@ if analyze:
                 st.warning("尚未產生 AI 選股資料，請先執行 GitHub Actions 或本地更新腳本。")
             else:
                 df_ai = pd.read_csv(csv_path)
+                if "Updated_At" in df_ai.columns:
+                    updated_at = pd.to_datetime(df_ai["Updated_At"]).max()
+                    updated_at = updated_at + pd.Timedelta(hours=8)
+                    updated_at = updated_at.strftime("%Y-%m-%d %H:%M")
+                else:
+                    updated_at = "未知"
 
-                updated_at = df_ai["Updated_At"].iloc[0] if "Updated_At" in df_ai.columns else "未知"
                 st.info(f"資料更新時間：{updated_at}")
 
                 top_n = st.slider("顯示前幾名", 5, 50, 20)
