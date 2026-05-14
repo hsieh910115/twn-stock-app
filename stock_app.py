@@ -666,6 +666,33 @@ def compute_backtest_stats(bt: pd.DataFrame) -> Dict:
     }
 
 
+def apply_backtest_execution(
+    data: pd.DataFrame,
+    signal: pd.Series,
+    mode: str = "簡易 close-to-close",
+    cost_rate: float = 0.0,
+) -> pd.DataFrame:
+    """套用回測成交模式與交易成本。"""
+    bt = data.copy()
+    bt["Signal"] = signal.reindex(bt.index).fillna(0)
+
+    # 進場或出場都算一次換手
+    trade = bt["Signal"].diff().abs().fillna(0)
+
+    if mode == "真實 next-open":
+        # 今日收盤產生訊號，隔日開盤進場，吃隔日 Open -> Close 報酬
+        bt["NextOpen_Return"] = bt["Close"] / bt["Open"] - 1
+        bt["Strategy_Return"] = bt["Signal"].shift(1).fillna(0) * bt["NextOpen_Return"]
+    else:
+        # 原本邏輯：今日收盤產生訊號，隔日吃 Close -> Close 報酬
+        bt["Strategy_Return"] = bt["Signal"].shift(1).fillna(0) * bt["Return_1D"]
+
+    # 扣交易成本
+    bt["Strategy_Return"] = bt["Strategy_Return"] - trade * cost_rate
+
+    return bt
+
+
 def position_from_entry_exit(entry: pd.Series, exit_: pd.Series, index: pd.Index) -> pd.Series:
     """用進場/出場條件轉成持有狀態。entry=True 進場，exit_=True 出場。"""
     holding = False
@@ -715,7 +742,13 @@ STRATEGY_PRESETS: Dict[str, Dict[str, str]] = {
 }
 
 
-def backtest_strategy(df: pd.DataFrame, strategy_name: str, params: Optional[Dict] = None) -> Dict:
+def backtest_strategy(
+    df: pd.DataFrame,
+    strategy_name: str,
+    params: Optional[Dict] = None,
+    execution_mode: str = "簡易 close-to-close",
+    cost_rate: float = 0.0,
+) -> Dict:
     """多策略回測。所有策略都用昨日訊號決定今日持有，避免偷看未來。"""
     params = params or {}
     data = df.copy()
@@ -784,16 +817,29 @@ def backtest_strategy(df: pd.DataFrame, strategy_name: str, params: Optional[Dic
     else:
         return {}
 
-    bt = data.copy()
-    bt["Signal"] = signal.reindex(bt.index).fillna(0)
-    bt["Strategy_Return"] = bt["Signal"].shift(1).fillna(0) * bt["Return_1D"]
+    bt = apply_backtest_execution(
+        data=data,
+        signal=signal,
+        mode=execution_mode,
+        cost_rate=cost_rate,
+    )
+
     return compute_backtest_stats(bt)
 
 
-def backtest_all_strategies(df: pd.DataFrame) -> pd.DataFrame:
+def backtest_all_strategies(
+    df: pd.DataFrame,
+    execution_mode: str = "簡易 close-to-close",
+    cost_rate: float = 0.0,
+) -> pd.DataFrame:
     rows = []
     for name, meta in STRATEGY_PRESETS.items():
-        bt = backtest_strategy(df, name)
+        bt = backtest_strategy(
+            df,
+            name,
+            execution_mode=execution_mode,
+            cost_rate=cost_rate,
+        )
         if not bt:
             continue
         rows.append({
@@ -812,7 +858,12 @@ def backtest_all_strategies(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values(["Sharpe", "策略總報酬%"], ascending=False, na_position="last")
 
 
-def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
+def optimize_parameters(
+    df: pd.DataFrame,
+    strategy_family: str,
+    execution_mode: str = "簡易 close-to-close",
+    cost_rate: float = 0.0,
+) -> pd.DataFrame:
     """依目前左側設定的資料期間做簡單參數最佳化。\n\n    注意：這是歷史區間最佳，不保證未來最佳；主要用來比較參數穩定性。\n    """
     rows = []
     if strategy_family == "均線趨勢 MA":
@@ -821,7 +872,13 @@ def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
                 if short >= long:
                     continue
                 name = "保守均線趨勢｜少交易" if long <= 90 else "長線大波段｜不太操作"
-                bt = backtest_strategy(df, name, {"short_ma": short, "long_ma": long})
+                bt = backtest_strategy(
+                    df,
+                    name,
+                    {"short_ma": short, "long_ma": long},
+                    execution_mode=execution_mode,
+                    cost_rate=cost_rate,
+                )
                 if not bt:
                     continue
                 rows.append({"策略族": strategy_family, "參數": f"Close > MA{short} 且 MA{short} > MA{long}", "短均線": short, "長均線": long, **_opt_stats(bt)})
@@ -832,7 +889,13 @@ def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
                 if fast >= slow:
                     continue
                 for rsi_enter in [45, 50, 55]:
-                    bt = backtest_strategy(df, "EMA動能｜短線波段", {"fast_ema": fast, "slow_ema": slow, "rsi_enter": rsi_enter, "rsi_exit": rsi_enter - 5})
+                    bt = backtest_strategy(
+                        df,
+                        "EMA動能｜短線波段",
+                        {"fast_ema": fast, "slow_ema": slow, "rsi_enter": rsi_enter, "rsi_exit": rsi_enter - 5},
+                        execution_mode=execution_mode,
+                        cost_rate=cost_rate,
+                    )
                     if not bt:
                         continue
                     rows.append({"策略族": strategy_family, "參數": f"EMA{fast} > EMA{slow}, RSI>{rsi_enter}", "快EMA": fast, "慢EMA": slow, "RSI進場": rsi_enter, **_opt_stats(bt)})
@@ -841,7 +904,13 @@ def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
         for n in [10, 20, 30, 55]:
             for exit_ma in [10, 20, 30]:
                 for vol in [1.0, 1.2, 1.5]:
-                    bt = backtest_strategy(df, "突破追價｜不要錯過飆股", {"breakout_n": n, "exit_ma": exit_ma, "volume_min": vol})
+                    bt = backtest_strategy(
+                        df,
+                        "突破追價｜不要錯過飆股",
+                        {"breakout_n": n, "exit_ma": exit_ma, "volume_min": vol},
+                        execution_mode=execution_mode,
+                        cost_rate=cost_rate,
+                    )
                     if not bt:
                         continue
                     rows.append({"策略族": strategy_family, "參數": f"突破{n}日高, 量比>{vol}, 跌破MA{exit_ma}出場", "突破天數": n, "出場MA": exit_ma, "量比門檻": vol, **_opt_stats(bt)})
@@ -851,7 +920,13 @@ def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
             for long in [120, 180, 240]:
                 if short >= long:
                     continue
-                bt = backtest_strategy(df, "長線大波段｜不太操作", {"short_ma": short, "long_ma": long})
+                bt = backtest_strategy(
+                    df,
+                    "長線大波段｜不太操作",
+                    {"short_ma": short, "long_ma": long},
+                    execution_mode=execution_mode,
+                    cost_rate=cost_rate,
+                )
                 if not bt:
                     continue
                 rows.append({"策略族": strategy_family, "參數": f"Close > MA{short} 且 MA{short} > MA{long}", "短均線": short, "長均線": long, **_opt_stats(bt)})
@@ -861,7 +936,13 @@ def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
             for high in [50, 55, 60, 65]:
                 if low >= high:
                     continue
-                bt = backtest_strategy(df, "RSI反轉｜頻繁操作搶反彈", {"rsi_low": low, "rsi_high": high})
+                bt = backtest_strategy(
+                    df,
+                    "RSI反轉｜頻繁操作搶反彈",
+                    {"rsi_low": low, "rsi_high": high},
+                    execution_mode=execution_mode,
+                    cost_rate=cost_rate,
+                )
                 if not bt:
                     continue
                 rows.append({"策略族": strategy_family, "參數": f"RSI<{low}進場, RSI>{high}或站上MA20出場", "RSI低檔": low, "RSI出場": high, **_opt_stats(bt)})
@@ -872,14 +953,24 @@ def optimize_parameters(df: pd.DataFrame, strategy_family: str) -> pd.DataFrame:
             tmp = df.copy()
             tmp["BB_UPPER"] = tmp["BB_MID"] + k * tmp["BB_STD"]
             tmp["BB_LOWER"] = tmp["BB_MID"] - k * tmp["BB_STD"]
-            bt = backtest_strategy(tmp, "布林下軌反彈｜有賺就好")
+            bt = backtest_strategy(
+                tmp,
+                "布林下軌反彈｜有賺就好",
+                execution_mode=execution_mode,
+                cost_rate=cost_rate,
+            )
             if not bt:
                 continue
             rows.append({"策略族": strategy_family, "參數": f"Close < BB下軌({k}σ)進場, 回中線出場", "布林倍數": k, **_opt_stats(bt)})
 
     elif strategy_family == "全部策略":
         for fam in ["均線趨勢 MA", "長線大波段 MA", "EMA動能", "突破追價", "RSI反轉", "布林反彈"]:
-            part = optimize_parameters(df, fam)
+            part = optimize_parameters(
+                df,
+                fam,
+                execution_mode=execution_mode,
+                cost_rate=cost_rate,
+            )
             if not part.empty:
                 rows.extend(part.to_dict("records"))
 
@@ -1390,6 +1481,7 @@ def mode_difference_table() -> pd.DataFrame:
 
 # ===== 更新公告文字 =====
 CHANGELOG_TEXT = """
+2026.05.15 回測中心新增簡易 close-to-close 與真實 next-open 模式，並加入交易成本估算
 2026.05.14 新增 AI 選股
 2026.05.14 技術圖表新增副圖MACD
 2026.05.13 新增底部更新公告區塊、意見回饋表單
@@ -1691,7 +1783,30 @@ if analyze:
             st.markdown("#### 多策略回測中心")
             st.info("檢查：不同交易規則在過去同一段資料期間內表現如何。")
 
-            compare_df = backtest_all_strategies(df)
+            backtest_mode = st.selectbox(
+                "回測模式",
+                ["簡易 close-to-close", "真實 next-open"],
+                index=0,
+                help="簡易模式使用收盤到收盤報酬；真實模式使用今日收盤訊號、隔日開盤成交。"
+            )
+
+            cost_pct = st.number_input(
+                "單次換手成本％",
+                min_value=0.0,
+                max_value=2.0,
+                value=0.30,
+                step=0.05,
+                format="%.2f",
+                help="簡化估算手續費、交易稅與滑價。0.30 代表每次買進或賣出扣 0.3%。"
+            )
+
+            cost_rate = cost_pct / 100
+
+            compare_df = backtest_all_strategies(
+                df,
+                execution_mode=backtest_mode,
+                cost_rate=cost_rate,
+            )
             if compare_df.empty:
                 st.info("資料不足，無法進行多策略回測。建議增加左側資料期間。")
             else:
@@ -1702,7 +1817,12 @@ if analyze:
                 meta = STRATEGY_PRESETS[strategy_name]
                 st.caption(f"策略定位：{meta['style']}｜規則：{meta['rule']}｜適用情境：{meta['fit']}")
 
-                bt = backtest_strategy(df, strategy_name)
+                bt = backtest_strategy(
+                    df,
+                    strategy_name,
+                    execution_mode=backtest_mode,
+                    cost_rate=cost_rate,
+                )
                 if not bt:
                     st.info("此策略在目前資料期間內資料不足，無法回測。")
                 else:
@@ -1730,7 +1850,12 @@ if analyze:
                 run_opt = st.button("執行參數最佳化", type="secondary", use_container_width=True)
                 if run_opt:
                     with st.spinner("正在測試不同參數組合..."):
-                        opt_df = optimize_parameters(df, opt_family)
+                        opt_df = optimize_parameters(
+                            df,
+                            opt_family,
+                            execution_mode=backtest_mode,
+                            cost_rate=cost_rate,
+                        )
                     if opt_df.empty:
                         st.info("目前資料期間不足或無法產生有效參數組合。")
                     else:
