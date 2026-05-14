@@ -863,6 +863,7 @@ def optimize_parameters(
     strategy_family: str,
     execution_mode: str = "簡易 close-to-close",
     cost_rate: float = 0.0,
+    optimize_target: str = "穩健分數最高",
 ) -> pd.DataFrame:
     """依目前左側設定的資料期間做簡單參數最佳化。\n\n    注意：這是歷史區間最佳，不保證未來最佳；主要用來比較參數穩定性。\n    """
     rows = []
@@ -979,7 +980,13 @@ def optimize_parameters(
     out = pd.DataFrame(rows)
     # 排序不是只看報酬，避免選到很會暴衝但回撤超大的參數。
     out["穩健分數"] = out["Sharpe"].fillna(0) * 2 + out["年化報酬%"].fillna(0) / 20 + out["最大回撤%"].fillna(-100) / 20
-    return out.sort_values("穩健分數", ascending=False).head(20)
+    
+    if optimize_target == "報酬最高":
+        out = out.sort_values("策略總報酬%", ascending=False)
+    else:
+        out = out.sort_values("穩健分數", ascending=False)
+    
+    return out.head(20)
 
 
 def _opt_stats(bt: Dict) -> Dict:
@@ -1481,7 +1488,8 @@ def mode_difference_table() -> pd.DataFrame:
 
 # ===== 更新公告文字 =====
 CHANGELOG_TEXT = """
-2026.05.15 回測中心新增簡易 close-to-close 與真實 next-open 模式，並加入交易成本估算
+2026.05.15 最佳化參數修改為穩健分數最高、報酬最高兩種模式
+2026.05.15 回測功能修改為理想與真實兩種模式，並加入交易成本估算
 2026.05.14 新增 AI 選股
 2026.05.14 技術圖表新增副圖MACD
 2026.05.13 新增底部更新公告區塊、意見回饋表單
@@ -1667,7 +1675,7 @@ if analyze:
         c6.metric("目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
 
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
-            ["總覽", "技術圖表", "基本面", "風險控管", "簡易回測", "策略執行", "模式差異", "AI選股"]
+            ["總覽", "技術圖表", "基本面", "風險控管", "歷史回測", "策略執行", "模式差異", "AI選股"]
             )        
         with tab1:
             left, right = st.columns([1, 1])
@@ -1785,9 +1793,9 @@ if analyze:
 
             backtest_mode = st.selectbox(
                 "回測模式",
-                ["簡易 close-to-close", "真實 next-open"],
+                ["理想", "真實"],
                 index=0,
-                help="簡易模式使用收盤到收盤報酬；真實模式使用今日收盤訊號、隔日開盤成交。"
+                help="理想模式：假設訊號出現後，能完整參與隔天漲跌 ; 真實模式：今日收盤看到訊號，隔天開盤才實際進場。"
             )
 
             cost_pct = st.number_input(
@@ -1846,6 +1854,15 @@ if analyze:
                 st.markdown("---")
                 st.markdown("#### 參數最佳化")
                 st.caption("依照左側輸入的資料期間尋找歷史表現較穩健的參數組合。這不是保證未來最佳，只是用來避免憑感覺設定 MA20/MA60。")
+                optimize_target = st.selectbox(
+                    "最佳化目標",
+                    ["穩健分數最高", "報酬最高"],
+                    help="""穩健分數公式：
+
+Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
+
+（最大回撤為負值，因此回撤越大分數越低）"""
+                )
                 opt_family = st.selectbox("選擇要最佳化的策略族", ["全部策略", "均線趨勢 MA", "長線大波段 MA", "EMA動能", "突破追價", "RSI反轉", "布林反彈"])
                 run_opt = st.button("執行參數最佳化", type="secondary", use_container_width=True)
                 if run_opt:
@@ -1855,10 +1872,19 @@ if analyze:
                             opt_family,
                             execution_mode=backtest_mode,
                             cost_rate=cost_rate,
+                            optimize_target=optimize_target,
                         )
                     if opt_df.empty:
                         st.info("目前資料期間不足或無法產生有效參數組合。")
                     else:
+                        if optimize_target == "穩健分數最高":
+                            st.caption(
+                                "穩健分數 = Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20"
+                            )
+                        else:
+                            st.caption(
+                                "依照總報酬％由高到低排序"
+                            )
                         st.dataframe(opt_df, use_container_width=True, hide_index=True)
                         st.download_button(
                             "下載最佳化結果 CSV",
