@@ -1716,8 +1716,12 @@ def render_changelog(changelog_text):
     for date, content in items:
         html += f"""
 <div style="margin-bottom:14px;">
-<div style="font-weight:700; color:#111827;">📌 {date}</div>
-<div style="color:#374151; margin-left:4px;">{content}</div>
+    <span style="font-weight:700; color:#111827;">
+        📌 {content}
+    </span>
+    <span style="font-size:0.82rem; color:#6b7280; margin-left:8px;">
+        {date}
+    </span>
 </div>
 """
 
