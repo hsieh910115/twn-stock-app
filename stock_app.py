@@ -2006,53 +2006,172 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
 
                 st.markdown("---")
                 st.subheader("自訂參數回測")
-                st.caption("手動輸入短期與長期均線參數，查看該組合的淨值曲線與買賣點。")
 
-                col_p1, col_p2 = st.columns(2)
+                custom_strategy = st.selectbox(
+                    "選擇策略",
+                    [
+                        "保守均線趨勢｜少交易",
+                        "長線大波段｜不太操作",
+                        "EMA動能｜短線波段",
+                        "突破追價｜不要錯過飆股",
+                        "RSI反轉｜頻繁操作搶反彈",
+                        "布林下軌反彈｜有賺就好",
+                    ],
+                    key="custom_strategy"
+                )
 
-                with col_p1:
-                    custom_fast_ma = st.number_input(
-                        "短期均線參數",
-                        min_value=2,
-                        max_value=300,
-                        value=20,
-                        step=1
-                    )
+                params = {}
 
-                with col_p2:
-                    custom_slow_ma = st.number_input(
-                        "長期均線參數",
-                        min_value=3,
-                        max_value=500,
-                        value=60,
-                        step=1
-                    )
+                # ===== 不同策略顯示不同參數 =====
 
-                if custom_fast_ma >= custom_slow_ma:
-                    st.warning("短期均線參數應小於長期均線參數")
-                else:
-                    custom_bt = run_backtest(
-                        df.copy(),
-                        fast_ma=custom_fast_ma,
-                        slow_ma=custom_slow_ma
-                    )
+                if custom_strategy in ["保守均線趨勢｜少交易", "長線大波段｜不太操作"]:
 
-                    col_c1, col_c2 = st.columns(2)
-                    with col_c1:
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        params["short_ma"] = st.number_input(
+                            "短均線",
+                            min_value=2,
+                            max_value=300,
+                            value=20,
+                            step=1,
+                            key="custom_short_ma"
+                        )
+
+                    with c2:
+                        params["long_ma"] = st.number_input(
+                            "長均線",
+                            min_value=3,
+                            max_value=500,
+                            value=60,
+                            step=1,
+                            key="custom_long_ma"
+                        )
+
+                elif custom_strategy == "EMA動能｜短線波段":
+
+                    c1, c2, c3, c4 = st.columns(4)
+
+                    with c1:
+                        params["fast_ema"] = st.number_input(
+                            "快 EMA",
+                            2, 100, 10,
+                            key="custom_fast_ema"
+                        )
+
+                    with c2:
+                        params["slow_ema"] = st.number_input(
+                            "慢 EMA",
+                            3, 200, 20,
+                            key="custom_slow_ema"
+                        )
+
+                    with c3:
+                        params["rsi_enter"] = st.number_input(
+                            "RSI進場",
+                            1, 99, 50,
+                            key="custom_rsi_enter"
+                        )
+
+                    with c4:
+                        params["rsi_exit"] = st.number_input(
+                            "RSI出場",
+                            1, 99, 45,
+                            key="custom_rsi_exit"
+                        )
+
+                elif custom_strategy == "突破追價｜不要錯過飆股":
+
+                    c1, c2, c3 = st.columns(3)
+
+                    with c1:
+                        params["breakout_n"] = st.number_input(
+                            "突破天數",
+                            5, 120, 20,
+                            key="custom_breakout"
+                        )
+
+                    with c2:
+                        params["exit_ma"] = st.number_input(
+                            "出場均線",
+                            5, 120, 20,
+                            key="custom_exit_ma"
+                        )
+
+                    with c3:
+                        params["volume_min"] = st.number_input(
+                            "量比門檻",
+                            0.5, 5.0, 1.2,
+                            step=0.1,
+                            key="custom_volume"
+                        )
+
+                elif custom_strategy == "RSI反轉｜頻繁操作搶反彈":
+
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        params["rsi_low"] = st.number_input(
+                            "RSI低檔",
+                            1, 50, 30,
+                            key="custom_rsi_low"
+                        )
+
+                    with c2:
+                        params["rsi_high"] = st.number_input(
+                            "RSI出場",
+                            40, 99, 55,
+                            key="custom_rsi_high"
+                        )
+
+                # ===== 執行回測 =====
+
+                custom_bt = backtest_strategy(
+                    df,
+                    custom_strategy,
+                    params=params,
+                    execution_mode=backtest_mode,
+                    cost_rate=cost_rate,
+                )
+
+                if custom_bt:
+
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
                         st.metric(
                             "累積報酬",
                             f"{custom_bt['total_return'] * 100:.2f}%"
                         )
-                    with col_c2:
-                        days = (df.index[-1] - df.index[0]).days
-                        if days > 0:
-                            cagr = (custom_bt['total_return'] + 1) ** (365 / days) - 1
-                            st.metric(
-                                "年化報酬",
-                                f"{cagr * 100:.2f}%"
-                            )
 
-                    plot_equity_curve_with_signals(custom_bt["result"])
+                    with col2:
+                        st.metric(
+                            "年化報酬",
+                            f"{custom_bt['cagr'] * 100:.2f}%"
+                        )
+
+                    with col3:
+                        st.metric(
+                            "最大回撤",
+                            f"{custom_bt['max_dd'] * 100:.2f}%"
+                        )
+
+                    with col4:
+                        st.metric(
+                            "Sharpe",
+                            f"{custom_bt['sharpe']:.2f}"
+                        )
+
+                    # ===== 買賣點 =====
+                    bt_df = custom_bt["df"].copy()
+
+                    bt_df["trade"] = bt_df["Signal"].diff()
+
+                    bt_df["equity"] = (
+                        1 + bt_df["Strategy_Return"]
+                    ).cumprod()
+
+                    plot_equity_curve_with_signals(bt_df)
 
                 with st.expander("各策略適合什麼情境？"):
                     st.markdown("""
