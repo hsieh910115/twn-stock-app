@@ -490,143 +490,248 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
-    """依操作模式給分。短線重視動能、量能與波動；長線重視趨勢品質、估值與股息。"""
+    """統一 -10~+10 評分架構。"""
+
     last = df.iloc[-1]
     prev = df.iloc[-2]
+
     score = 0
+
     reasons: List[str] = []
     warnings: List[str] = []
 
     close = safe_float(last["Close"])
     rsi = safe_float(last["RSI14"])
+
     pe = safe_float(info.get("trailingPE"))
     eps = safe_float(info.get("trailingEps"))
+
     dividend_yield = dividend_yield_pct(info)
     beta = safe_float(info.get("beta"))
 
+    # =========================================================
+    # 短線／波段
+    # =========================================================
     if "短線" in mode:
-        # 短線：先看趨勢與動能有沒有同步，避免只因便宜就接刀。
-        if is_valid_number(last.get("MA5")) and is_valid_number(last.get("MA20")) and close > last["MA5"] > last["MA20"]:
-            score += 2
-            reasons.append("短線價格站上 MA5 且 MA5 高於 MA20，短期攻擊型態較強。")
-        elif is_valid_number(last.get("MA5")) and is_valid_number(last.get("MA20")) and close < last["MA5"] < last["MA20"]:
-            score -= 2
-            warnings.append("短線價格跌破 MA5 且 MA5 低於 MA20，短期動能偏弱。")
 
-        if is_valid_number(last.get("MACD_HIST")) and is_valid_number(prev.get("MACD_HIST")) and last["MACD_HIST"] > 0 and last["MACD_HIST"] > prev["MACD_HIST"]:
-            score += 2
-            reasons.append("MACD 柱狀體為正且擴大，波段動能改善。")
-        elif is_valid_number(last.get("MACD_HIST")) and last["MACD_HIST"] < 0:
-            score -= 1
-            warnings.append("MACD 柱狀體仍為負，短線追價需保守。")
+        # ===== 趨勢結構（±3）
+        if (
+            is_valid_number(last.get("MA5"))
+            and is_valid_number(last.get("MA20"))
+        ):
 
-        if 45 <= rsi <= 68:
+            if close > last["MA5"] > last["MA20"]:
+                score += 3
+                reasons.append("短均線呈多頭排列，短線趨勢強勢。")
+
+            elif close < last["MA5"] < last["MA20"]:
+                score -= 3
+                warnings.append("短均線呈空頭排列，短線結構偏弱。")
+
+        # ===== MACD 動能（±2）
+        if (
+            is_valid_number(last.get("MACD_HIST"))
+            and is_valid_number(prev.get("MACD_HIST"))
+        ):
+
+            if (
+                last["MACD_HIST"] > 0
+                and last["MACD_HIST"] > prev["MACD_HIST"]
+            ):
+                score += 2
+                reasons.append("MACD 動能持續擴大。")
+
+            elif last["MACD_HIST"] < 0:
+                score -= 2
+                warnings.append("MACD 動能仍偏弱。")
+
+        # ===== RSI（±2）
+        if 50 <= rsi <= 68:
+            score += 2
+            reasons.append("RSI 位於強勢區且未過熱。")
+
+        elif 68 < rsi <= 80:
             score += 1
-            reasons.append("RSI 位於偏強但未過熱區，短線仍有延續空間。")
-        elif rsi > 75:
+            warnings.append("RSI 偏高，需留意短線過熱。")
+
+        elif rsi > 80:
             score -= 2
-            warnings.append("RSI 高於 75，短線過熱，容易出現拉回。")
+            warnings.append("RSI 過熱，容易拉回。")
+
         elif rsi < 30:
-            score += 1
-            warnings.append("RSI 低於 30，可能有反彈機會，但需確認不是趨勢轉空。")
+            score -= 1
+            warnings.append("RSI 過低，代表短線賣壓仍重。")
 
-        if is_valid_number(last.get("Volume_Ratio")) and last["Volume_Ratio"] > 1.5 and close > prev["Close"]:
+        # ===== 量能（±1）
+        if (
+            is_valid_number(last.get("Volume_Ratio"))
+            and last["Volume_Ratio"] > 1.5
+            and close > prev["Close"]
+        ):
             score += 1
-            reasons.append("成交量明顯放大且收漲，短線買盤較積極。")
-        elif is_valid_number(last.get("Volume_Ratio")) and last["Volume_Ratio"] > 1.8 and close < prev["Close"]:
+            reasons.append("量能放大且收漲，市場買盤積極。")
+
+        elif (
+            is_valid_number(last.get("Volume_Ratio"))
+            and last["Volume_Ratio"] > 1.8
+            and close < prev["Close"]
+        ):
             score -= 1
             warnings.append("放量下跌，短線賣壓偏重。")
 
-        if is_valid_number(last.get("Return_20D")) and last["Return_20D"] > 0.08:
-            score += 1
-            reasons.append("近 20 日漲幅較強，屬相對強勢股候選。")
-        elif is_valid_number(last.get("Return_20D")) and last["Return_20D"] < -0.08:
-            score -= 1
-            warnings.append("近 20 日跌幅偏大，短線結構仍需觀察。")
+        # ===== 20日動能（±1）
+        if is_valid_number(last.get("Return_20D")):
 
+            if last["Return_20D"] > 0.15:
+                score += 1
+                reasons.append("近 20 日動能強勢。")
+
+            elif last["Return_20D"] < -0.15:
+                score -= 1
+                warnings.append("近 20 日動能偏弱。")
+
+        # ===== 布林位置（±1）
+        if (
+            is_valid_number(last.get("BB_UPPER"))
+            and is_valid_number(last.get("BB_LOWER"))
+        ):
+
+            if close > last["BB_UPPER"]:
+                score -= 1
+                warnings.append("股價偏離布林上軌，追高風險較高。")
+
+            elif close < last["BB_LOWER"]:
+                score += 1
+                reasons.append("股價接近布林下軌，可能有反彈機會。")
+
+    # =========================================================
+    # 長線／存股
+    # =========================================================
     else:
-        # 長線：先看大結構、估值、股息與獲利品質，不過度被短線波動干擾。
-        if is_valid_number(last.get("MA60")) and is_valid_number(last.get("MA120")) and close > last["MA60"] > last["MA120"]:
-            score += 2
-            reasons.append("股價站上季線，且季線高於半年線，中長期趨勢偏多。")
-        elif is_valid_number(last.get("MA60")) and close < last["MA60"]:
-            score -= 2
-            warnings.append("股價低於季線，長線加碼宜放慢。")
 
+        # ===== 中長期趨勢（±3）
+        if (
+            is_valid_number(last.get("MA60"))
+            and is_valid_number(last.get("MA120"))
+        ):
+
+            if close > last["MA60"] > last["MA120"]:
+                score += 3
+                reasons.append("季線與半年線呈多頭排列。")
+
+            elif close < last["MA60"] < last["MA120"]:
+                score -= 3
+                warnings.append("中長期均線偏空。")
+
+        # ===== 年線結構（±2）
         if is_valid_number(last.get("MA240")):
+
             if close > last["MA240"]:
-                score += 1
-                reasons.append("股價位於年線之上，長期結構尚佳。")
-            else:
-                score -= 1
-                warnings.append("股價低於年線，長期趨勢仍需修復。")
-        else:
-            warnings.append("目前期間較短，年線資料不足，長線判斷需搭配更長資料。")
+                score += 2
+                reasons.append("股價位於年線之上。")
 
+            else:
+                score -= 2
+                warnings.append("股價仍低於年線。")
+
+        # ===== PE 估值（±2）
         if not pd.isna(pe):
-            if 0 < pe <= 20:
-                score += 2
-                reasons.append("本益比不高，估值相對保守。")
-            elif pe > 35:
-                score -= 1
-                warnings.append("本益比偏高，需確認未來成長足以支撐估值。")
 
-        if not pd.isna(eps):
-            if eps > 0:
+            if 0 < pe <= 15:
+                score += 2
+                reasons.append("本益比偏低，估值相對合理。")
+
+            elif 15 < pe <= 25:
                 score += 1
-                reasons.append("EPS 為正，具備基本獲利能力。")
-            else:
+                reasons.append("本益比尚屬合理區間。")
+
+            elif pe > 40:
+                score -= 2
+                warnings.append("本益比偏高，估值壓力較大。")
+
+        # ===== EPS（±1）
+        if not pd.isna(eps):
+
+            if eps > 5:
+                score += 1
+                reasons.append("EPS 表現良好。")
+
+            elif eps <= 0:
                 score -= 1
-                warnings.append("EPS 非正值，長線持有需特別檢查獲利品質。")
+                warnings.append("EPS 非正值。")
 
+        # ===== 殖利率（±1）
         if not pd.isna(dividend_yield):
-            if dividend_yield >= 4:
-                score += 2
-                reasons.append("殖利率高於 4%，對長線現金流較有吸引力。")
-            elif dividend_yield < 1:
-                warnings.append("殖利率偏低，長線報酬主要仰賴資本利得。")
 
+            if dividend_yield >= 5:
+                score += 1
+                reasons.append("殖利率具吸引力。")
+
+            elif dividend_yield < 1:
+                score -= 1
+                warnings.append("殖利率偏低。")
+
+        # ===== Beta（±1）
         if not pd.isna(beta):
+
             if beta <= 1:
                 score += 1
-                reasons.append("Beta 不高，波動相對溫和。")
-            elif beta > 1.4:
-                warnings.append("Beta 偏高，長期持有仍可能承受較大波動。")
+                reasons.append("Beta 較低，波動相對穩定。")
 
-    # 共同風險：不論短線長線，都提醒估值與過度偏離。
-    if is_valid_number(last.get("BB_UPPER")) and close > last["BB_UPPER"]:
-        warnings.append("股價高於布林上軌，短期偏離均值，追高風險較高。")
-    if is_valid_number(last.get("Drawdown")) and last["Drawdown"] < -0.25:
-        warnings.append("目前距歷史高點回撤超過 25%，需確認是否為基本面轉弱。")
+            elif beta > 1.6:
+                score -= 1
+                warnings.append("Beta 偏高，波動風險較大。")
 
-    # ===== 將原始分數轉成 0~10 分 =====
-    if "短線" in mode:
-        score_min, score_max = -7, 7
-    else:
-        score_min, score_max = -5, 9
+    # =========================================================
+    # 額外風險提醒（不計分）
+    # =========================================================
 
-    score_10 = (score - score_min) / (score_max - score_min) * 10
-    score_10 = max(0, min(10, score_10))
+    if (
+        is_valid_number(last.get("Drawdown"))
+        and last["Drawdown"] < -0.35
+    ):
+        warnings.append("距歷史高點回撤超過 35%。")
 
-    if score_10 >= 8:
-        label = "非常強勢／可優先觀察"
+    # =========================================================
+    # -10~10 → 0~10
+    # =========================================================
+
+    score = max(-10, min(10, score))
+
+    score_10 = (score + 10) / 20 * 10
+    score_10 = round(score_10, 1)
+
+    # =========================================================
+    # 評語
+    # =========================================================
+
+    if score_10 >= 8.5:
+        label = "條件優良／可優先觀察"
         level = "success"
-    elif score_10 >= 6:
-        label = "偏多／可列入候選"
+
+    elif score_10 >= 7:
+        label = "偏多格局／可列入候選"
         level = "info"
+
+    elif score_10 >= 5.5:
+        label = "中性偏多／等待確認"
+        level = "info"
+
     elif score_10 >= 4:
-        label = "中性整理／等待方向"
+        label = "中性偏弱／保守觀望"
         level = "warning"
-    elif score_10 >= 2:
-        label = "偏弱／保守觀望"
+
+    elif score_10 >= 2.5:
+        label = "偏弱格局／不宜積極"
         level = "warning"
+
     else:
-        label = "高風險／不建議介入"
+        label = "高風險／暫不建議介入"
         level = "error"
 
     return {
         "score": score,
-        "score_10": round(score_10, 1),
+        "score_10": score_10,
         "label": label,
         "level": level,
         "reasons": reasons[:6],
