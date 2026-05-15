@@ -1889,8 +1889,8 @@ if analyze:
         c5.metric("20日年化波動", format_number(last["Volatility_20D"] * 100, 1, "%"))
         c6.metric("目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
 
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
-            ["總覽", "技術圖表", "基本面", "風險控管", "歷史回測", "策略執行", "模式差異", "AI選股"]
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
+            ["總覽", "技術圖表", "基本面", "風險控管", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
             )        
         with tab1:
             left, right = st.columns([1, 1])
@@ -2498,7 +2498,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
 
 
         with tab8:
-            st.header(" AI 妖股動能選股")
+            st.header(" AI 妖股選股")
             st.caption("每日 18:00 自動更新")
 
             st.warning(
@@ -2606,6 +2606,130 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                     mime="text/csv",
                     use_container_width=True,
                 )
+                
+                
+        with tab9:
+            st.header("AI 潛力股選股")
+            st.caption("每日 17:00 自動更新，尋找尚未發動但具低估修復潛力的股票。")
+
+            st.warning(
+                "此模型屬於「左側布局 / 低估修復 / 潛伏型」選股邏輯，"
+                "目標是尋找技術面尚未明顯轉強，但可能具備跌深修復、低檔整理或估值修復空間的股票。"
+            )
+
+            with st.expander("AI 潛力股選股邏輯說明", expanded=False):
+                st.markdown("""
+                **1. 跌深修復空間**  
+                觀察股價距離 52 週高點的回落幅度，以及未來可能回補的空間。
+
+                **2. 技術安全邊際**  
+                不是找已經噴出的股票，而是確認股價沒有持續崩壞，並觀察 RSI 是否位於低檔整理區。
+
+                **3. 均線糾結度**  
+                當 MA10、MA20、MA60 靠得很近時，代表股價可能進入低檔整理或籌碼沉澱階段。
+
+                **4. 防守能力**  
+                觀察波動率是否過高，避免選到跌深但風險失控的股票。
+
+                **5. 潛伏修復特徵**  
+                若股價跌深、波動可控、RSI 未過熱、均線開始靠攏，代表可能具有左側布局價值。
+                """)
+
+                st.caption(
+                    "提醒：AI 潛力股不是預測明天會上漲，而是找出可能適合分批觀察、等待修復的股票。"
+                )
+
+            csv_path = "data/ai_potential_top.csv"
+
+            if not os.path.exists(csv_path):
+                st.warning("尚未產生 AI 潛力股資料，請先執行 GitHub Actions 或本地更新腳本。")
+            else:
+                df_potential = pd.read_csv(csv_path)
+
+                if "Updated_At" in df_potential.columns:
+                    updated_at = pd.to_datetime(df_potential["Updated_At"]).max()
+                    updated_at = updated_at + pd.Timedelta(hours=8)
+                    updated_at = updated_at.strftime("%Y-%m-%d %H:%M")
+                else:
+                    updated_at = "未知"
+
+                st.info(f"資料更新時間：{updated_at}")
+
+                top_n = st.slider(
+                    "顯示前幾名",
+                    5,
+                    50,
+                    20,
+                    key="potential_top_n"
+                )
+
+                show_cols = [
+                    "Rank",
+                    "ID",
+                    "Name",
+                    "Industry",
+                    "Close",
+                    "AI_Potential_Score",
+                    "Tag",
+                    "RSI14",
+                    "Hist_Vol",
+                    "MA_Compression",
+                    "Drawdown_52W",
+                    "Rebound_Space",
+                    "P_to_MA60",
+                    "P_to_MA120",
+                    "Volume_Ratio",
+                    "Reason",
+                    "Risk",
+                ]
+
+                df_show = df_potential[show_cols].head(top_n).copy()
+
+                st.subheader("潛力股排名")
+
+                st.dataframe(
+                    df_show,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Rank": st.column_config.NumberColumn("排名"),
+                        "ID": st.column_config.TextColumn("代號"),
+                        "Name": st.column_config.TextColumn("股名"),
+                        "Industry": st.column_config.TextColumn("產業"),
+                        "Close": st.column_config.NumberColumn("收盤價", format="%.2f"),
+                        "AI_Potential_Score": st.column_config.ProgressColumn(
+                            "AI 潛力分數",
+                            min_value=0,
+                            max_value=100,
+                            format="%.2f",
+                        ),
+                        "Tag": st.column_config.TextColumn("類型"),
+                        "RSI14": st.column_config.NumberColumn("RSI14", format="%.2f"),
+                        "Hist_Vol": st.column_config.NumberColumn("年化波動", format="%.2f%%"),
+                        "MA_Compression": st.column_config.NumberColumn("均線糾結度", format="%.2f%%"),
+                        "Drawdown_52W": st.column_config.NumberColumn("距52週高點", format="%.2f%%"),
+                        "Rebound_Space": st.column_config.NumberColumn("修復空間", format="%.2f%%"),
+                        "P_to_MA60": st.column_config.NumberColumn("距MA60", format="%.2f%%"),
+                        "P_to_MA120": st.column_config.NumberColumn("距MA120", format="%.2f%%"),
+                        "Volume_Ratio": st.column_config.NumberColumn("量比", format="%.2f"),
+                        "Reason": st.column_config.TextColumn("主要理由"),
+                        "Risk": st.column_config.TextColumn("主要風險"),
+                    }
+                )
+
+                st.caption(
+                    "AI 潛力分數越高，代表該股票越符合低檔整理、跌深修復、波動可控與左側潛伏條件。"
+                )
+
+                csv = df_potential.to_csv(index=False, encoding="utf-8-sig")
+
+                st.download_button(
+                    "下載 AI 潛力股選股結果 CSV",
+                    data=csv,
+                    file_name="ai_potential_top.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )     
 
     except Exception as exc:
         st.error(f"分析失敗：{exc}")

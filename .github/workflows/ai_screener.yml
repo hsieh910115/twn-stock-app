@@ -34,6 +34,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add data/ai_momentum_top.csv
-          git commit -m "Update AI momentum screener data" || echo "No changes to commit"
+          git add data/ai_momentum_top.csv data/ai_potential_top.csv
+          git commit -m "Update AI stock screener data" || echo "No changes to commit"
           git push
