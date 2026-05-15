@@ -669,7 +669,7 @@ def compute_backtest_stats(bt: pd.DataFrame) -> Dict:
 def apply_backtest_execution(
     data: pd.DataFrame,
     signal: pd.Series,
-    mode: str = "簡易 close-to-close",
+    mode: str = "理想",
     cost_rate: float = 0.0,
 ) -> pd.DataFrame:
     """套用回測成交模式與交易成本。"""
@@ -679,7 +679,7 @@ def apply_backtest_execution(
     # 進場或出場都算一次換手
     trade = bt["Signal"].diff().abs().fillna(0)
 
-    if mode == "真實 next-open":
+    if mode == "真實":
         # 今日收盤產生訊號，隔日開盤進場，吃隔日 Open -> Close 報酬
         bt["NextOpen_Return"] = bt["Close"] / bt["Open"] - 1
         bt["Strategy_Return"] = bt["Signal"].shift(1).fillna(0) * bt["NextOpen_Return"]
@@ -746,7 +746,7 @@ def backtest_strategy(
     df: pd.DataFrame,
     strategy_name: str,
     params: Optional[Dict] = None,
-    execution_mode: str = "簡易 close-to-close",
+    execution_mode: str = "理想",
     cost_rate: float = 0.0,
 ) -> Dict:
     """多策略回測。所有策略都用昨日訊號決定今日持有，避免偷看未來。"""
@@ -829,7 +829,7 @@ def backtest_strategy(
 
 def backtest_all_strategies(
     df: pd.DataFrame,
-    execution_mode: str = "簡易 close-to-close",
+    execution_mode: str = "理想",
     cost_rate: float = 0.0,
 ) -> pd.DataFrame:
     rows = []
@@ -861,7 +861,7 @@ def backtest_all_strategies(
 def optimize_parameters(
     df: pd.DataFrame,
     strategy_family: str,
-    execution_mode: str = "簡易 close-to-close",
+    execution_mode: str = "理想",
     cost_rate: float = 0.0,
     optimize_target: str = "穩健分數最高",
 ) -> pd.DataFrame:
