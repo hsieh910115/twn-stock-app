@@ -1770,8 +1770,33 @@ def get_tw_stock_list():
 st.title("📈 台股投資分析")
 st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
 with st.sidebar:
-    st.header("股票設定")
-    raw_code = st.text_input("股票代碼", value="2330", help="可輸入 2330、8069、0050，也可輸入 2330.TW/8069.TWO")
+    st.header("股票設定")    
+    # ===== 股票搜尋 =====
+    stock_list = get_tw_stock_list()
+
+    search_options = []
+
+    for ticker, info in stock_list.items():
+        code = ticker.replace(".TW", "").replace(".TWO", "")
+        name = info["name"]
+        industry = info["industry"]
+
+        search_options.append(
+            f"{code} {name}｜{industry}"
+        )
+
+    selected_stock = st.selectbox(
+        "輸入股票代碼或公司名稱",
+        options=sorted(search_options),
+        index=None,
+        placeholder="例如：2330、台積電、鴻海",
+    )
+
+    # ===== 取得股票代碼 =====
+    if selected_stock:
+        raw_code = selected_stock.split(" ")[0]
+    else:
+        raw_code = "2330"
     
     st.subheader("資料區間設定")
     today = pd.Timestamp.today().date()
