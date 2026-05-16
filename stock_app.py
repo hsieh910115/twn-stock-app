@@ -1731,38 +1731,38 @@ def render_changelog(changelog_text):
 
     return html
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-@st.cache_data(ttl=60 * 60 * 24)
-def get_tw_stock_list():
-    stock_dict = {}
-    headers = {"User-Agent": "Mozilla/5.0"}
+# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# @st.cache_data(ttl=60 * 60 * 24)
+# def get_tw_stock_list():
+#     stock_dict = {}
+#     headers = {"User-Agent": "Mozilla/5.0"}
 
-    for m in [2, 4]:
-        url = f"https://isin.twse.com.tw/isin/C_public.jsp?strMode={m}"
-        res = requests.get(url, headers=headers, verify=False, timeout=15)
+#     for m in [2, 4]:
+#         url = f"https://isin.twse.com.tw/isin/C_public.jsp?strMode={m}"
+#         res = requests.get(url, headers=headers, verify=False, timeout=15)
 
-        df = pd.read_html(res.text)[0].iloc[1:]
+#         df = pd.read_html(res.text)[0].iloc[1:]
 
-        for _, row in df.iterrows():
-            try:
-                code_name = str(row[0]).split()
-                if len(code_name) != 2:
-                    continue
+#         for _, row in df.iterrows():
+#             try:
+#                 code_name = str(row[0]).split()
+#                 if len(code_name) != 2:
+#                     continue
 
-                code, name = code_name
-                cat = str(row[4])
+#                 code, name = code_name
+#                 cat = str(row[4])
 
-                if len(code) == 4 or code.startswith("00"):
-                    if cat not in ["權證", "牛熊證", "認購(售)權證"]:
-                        suffix = ".TW" if m == 2 else ".TWO"
-                        stock_dict[f"{code}{suffix}"] = {
-                            "name": name,
-                            "industry": cat,
-                        }
-            except Exception:
-                continue
+#                 if len(code) == 4 or code.startswith("00"):
+#                     if cat not in ["權證", "牛熊證", "認購(售)權證"]:
+#                         suffix = ".TW" if m == 2 else ".TWO"
+#                         stock_dict[f"{code}{suffix}"] = {
+#                             "name": name,
+#                             "industry": cat,
+#                         }
+#             except Exception:
+#                 continue
 
-    return stock_dict
+#     return stock_dict
 
 # =========================
 # 介面
