@@ -1732,71 +1732,107 @@ def render_changelog(changelog_text):
     return html
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-@st.cache_data(ttl=60 * 60 * 24)
+# @st.cache_data(ttl=60 * 60 * 24)
+# def get_tw_stock_list():
+#     stock_dict = {}
+#     headers = {"User-Agent": "Mozilla/5.0"}
+
+#     for m in [2, 4]:
+#         url = f"https://isin.twse.com.tw/isin/C_public.jsp?strMode={m}"
+#         res = requests.get(url, headers=headers, verify=False, timeout=15)
+
+#         df = pd.read_html(res.text)[0].iloc[1:]
+
+#         for _, row in df.iterrows():
+#             try:
+#                 code_name = str(row[0]).split()
+#                 if len(code_name) != 2:
+#                     continue
+
+#                 code, name = code_name
+#                 cat = str(row[4])
+
+#                 if len(code) == 4 or code.startswith("00"):
+#                     if cat not in ["權證", "牛熊證", "認購(售)權證"]:
+#                         suffix = ".TW" if m == 2 else ".TWO"
+#                         stock_dict[f"{code}{suffix}"] = {
+#                             "name": name,
+#                             "industry": cat,
+#                         }
+#             except Exception:
+#                 continue
+
+#     return stock_dict
+@st.cache_data(ttl=60 * 60 * 24, show_spinner=False)
 def get_tw_stock_list():
     stock_dict = {}
-    headers = {"User-Agent": "Mozilla/5.0"}
 
-    for m in [2, 4]:
-        url = f"https://isin.twse.com.tw/isin/C_public.jsp?strMode={m}"
-        res = requests.get(url, headers=headers, verify=False, timeout=15)
+    try:
+        info_df = finmind_request("TaiwanStockInfo")
 
-        df = pd.read_html(res.text)[0].iloc[1:]
+        if info_df.empty:
+            return {
+                "2330.TW": {"name": "台積電", "industry": "半導體業"},
+                "2317.TW": {"name": "鴻海", "industry": "其他電子業"},
+                "2454.TW": {"name": "聯發科", "industry": "半導體業"},
+                "0050.TW": {"name": "元大台灣50", "industry": "ETF"},
+            }
 
-        for _, row in df.iterrows():
-            try:
-                code_name = str(row[0]).split()
-                if len(code_name) != 2:
-                    continue
+        for _, row in info_df.iterrows():
+            code = str(row.get("stock_id", "")).strip()
+            name = str(row.get("stock_name", "")).strip()
+            industry = str(row.get("industry_category", "")).strip()
+            market = str(row.get("type", "")).strip()
 
-                code, name = code_name
-                cat = str(row[4])
-
-                if len(code) == 4 or code.startswith("00"):
-                    if cat not in ["權證", "牛熊證", "認購(售)權證"]:
-                        suffix = ".TW" if m == 2 else ".TWO"
-                        stock_dict[f"{code}{suffix}"] = {
-                            "name": name,
-                            "industry": cat,
-                        }
-            except Exception:
+            if not code or not name:
                 continue
 
-    return stock_dict
+            if len(code) == 4 or code.startswith("00"):
+                suffix = ".TWO" if "上櫃" in market else ".TW"
+                stock_dict[f"{code}{suffix}"] = {
+                    "name": name,
+                    "industry": industry if industry else market,
+                }
 
+        return stock_dict
+
+    except Exception:
+        return {
+            "2330.TW": {"name": "台積電", "industry": "半導體業"},
+            "2317.TW": {"name": "鴻海", "industry": "其他電子業"},
+            "2454.TW": {"name": "聯發科", "industry": "半導體業"},
+            "0050.TW": {"name": "元大台灣50", "industry": "ETF"},
+        }
 # =========================
 # 介面
 # =========================
 st.title("📈 台股投資分析")
 st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
 with st.sidebar:
-    st.header("股票設定")    
-    # ===== 股票搜尋 =====
+    st.header("股票設定")
+
     stock_list = get_tw_stock_list()
 
     search_options = []
+    option_to_ticker = {}
 
     for ticker, info in stock_list.items():
         code = ticker.replace(".TW", "").replace(".TWO", "")
-        name = info["name"]
-        industry = info["industry"]
+        name = info.get("name", "")
+        industry = info.get("industry", "")
 
-        search_options.append(
-            f"{code} {name}｜{industry}"
-        )
+        label = f"{code} {name}｜{industry}"
+        search_options.append(label)
+        option_to_ticker[label] = code
 
     selected_stock = st.selectbox(
         "輸入股票代碼或公司名稱",
         options=sorted(search_options),
-        index=None,
+        index=0,
         placeholder="例如：2330、台積電、鴻海",
     )
 
-    # ===== 取得股票代碼 =====
-    if selected_stock:
-        raw_code = selected_stock.split(" ")[0]
-    else:
-        raw_code = "2330"
+    raw_code = option_to_ticker.get(selected_stock, "2330")
     
     st.subheader("資料區間設定")
     today = pd.Timestamp.today().date()
