@@ -274,14 +274,19 @@ textarea {
   min-height: 520px;
 }
 
-.chart svg {
+.chart > svg {
   display: block;
   width: 100%;
   height: 300px;
 }
 
-.chart.large svg {
+.chart.large > svg {
   height: 520px;
+}
+
+.chart .modebar svg {
+  width: 1em;
+  height: 1em;
 }
 
 .reason-grid {
