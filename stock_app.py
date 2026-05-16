@@ -1826,7 +1826,7 @@ with st.sidebar:
     st.caption(f"分析區間：{start_date} ～ {end_date}")
     mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=False)
     capital = st.number_input("帳戶資金（元）", min_value=1, value=100000, step=10000)
-    risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=10.0, step=1, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
+    risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=10.0, step=1.0, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
     analyze = st.button("更新並分析", type="primary", use_container_width=True)
     st.divider()
     watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
