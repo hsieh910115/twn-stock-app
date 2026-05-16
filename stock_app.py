@@ -217,6 +217,34 @@ def load_stock_name_map() -> Dict[str, Dict]:
     except Exception:
         return {}
 
+def resolve_stock_input(user_input: str) -> str:
+    """支援輸入股票代碼或公司名稱，最後回傳股票代碼。"""
+    text = str(user_input).strip()
+
+    if not text:
+        return "2330"
+
+    # 如果本來就是代碼，就直接回傳
+    normalized = normalize_tw_ticker(text)
+    if normalized.isdigit() or normalized == "TAIEX":
+        return normalized
+
+    stock_map = load_stock_name_map()
+
+    # 完全符合公司名稱
+    for code, info in stock_map.items():
+        name = str(info.get("shortName", ""))
+        if text == name:
+            return code
+
+    # 部分符合公司名稱
+    for code, info in stock_map.items():
+        name = str(info.get("shortName", ""))
+        if text in name:
+            return code
+
+    return text
+
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
 def load_ticker_info(ticker_symbol: str) -> Dict:
@@ -1809,7 +1837,7 @@ if not analyze and not run_watchlist:
     analyze = True
 
 if analyze:
-    ticker_input = normalize_tw_ticker(raw_code)
+    ticker_input = resolve_stock_input(raw_code)
     try:
         with st.spinner("正在取得最新股價與財務資料..."):
             # 1. 抓取原始資料 (使用用戶指定的日期範圍)
