@@ -1731,38 +1731,38 @@ def render_changelog(changelog_text):
 
     return html
 
-# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-# @st.cache_data(ttl=60 * 60 * 24)
-# def get_tw_stock_list():
-#     stock_dict = {}
-#     headers = {"User-Agent": "Mozilla/5.0"}
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+@st.cache_data(ttl=60 * 60 * 24)
+def get_tw_stock_list():
+    stock_dict = {}
+    headers = {"User-Agent": "Mozilla/5.0"}
 
-#     for m in [2, 4]:
-#         url = f"https://isin.twse.com.tw/isin/C_public.jsp?strMode={m}"
-#         res = requests.get(url, headers=headers, verify=False, timeout=15)
+    for m in [2, 4]:
+        url = f"https://isin.twse.com.tw/isin/C_public.jsp?strMode={m}"
+        res = requests.get(url, headers=headers, verify=False, timeout=15)
 
-#         df = pd.read_html(res.text)[0].iloc[1:]
+        df = pd.read_html(res.text)[0].iloc[1:]
 
-#         for _, row in df.iterrows():
-#             try:
-#                 code_name = str(row[0]).split()
-#                 if len(code_name) != 2:
-#                     continue
+        for _, row in df.iterrows():
+            try:
+                code_name = str(row[0]).split()
+                if len(code_name) != 2:
+                    continue
 
-#                 code, name = code_name
-#                 cat = str(row[4])
+                code, name = code_name
+                cat = str(row[4])
 
-#                 if len(code) == 4 or code.startswith("00"):
-#                     if cat not in ["權證", "牛熊證", "認購(售)權證"]:
-#                         suffix = ".TW" if m == 2 else ".TWO"
-#                         stock_dict[f"{code}{suffix}"] = {
-#                             "name": name,
-#                             "industry": cat,
-#                         }
-#             except Exception:
-#                 continue
+                if len(code) == 4 or code.startswith("00"):
+                    if cat not in ["權證", "牛熊證", "認購(售)權證"]:
+                        suffix = ".TW" if m == 2 else ".TWO"
+                        stock_dict[f"{code}{suffix}"] = {
+                            "name": name,
+                            "industry": cat,
+                        }
+            except Exception:
+                continue
 
-#     return stock_dict
+    return stock_dict
 
 # =========================
 # 介面
@@ -1771,13 +1771,8 @@ st.title("📈 台股投資分析")
 st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
 with st.sidebar:
     st.header("股票設定")
-
-    raw_code = st.text_input(
-        "股票代碼",
-        value="2330",
-        help="可輸入 2330、8069、0050，也可輸入 2330.TW/8069.TWO"
-    )
-
+    raw_code = st.text_input("股票代碼", value="2330", help="可輸入 2330、8069、0050，也可輸入 2330.TW/8069.TWO")
+    
     st.subheader("資料區間設定")
     today = pd.Timestamp.today().date()
     
@@ -2804,15 +2799,10 @@ if run_watchlist:
 
 st.divider()
 
-# if "df" in locals() and "resolved_ticker" in locals() and not df.empty:
-#     with st.expander("下載目前分析資料"):
-#         csv = df.to_csv(index=True).encode("utf-8-sig")
-#         st.download_button(
-#             "下載技術指標 CSV",
-#             data=csv,
-#             file_name=f"{display_code(resolved_ticker)}_analysis.csv",
-#             mime="text/csv",
-#         )
+with st.expander("下載目前分析資料"):
+    csv = df.to_csv(index=True).encode("utf-8-sig")
+    st.download_button("下載技術指標 CSV", data=csv, file_name=f"{display_code(resolved_ticker)}_analysis.csv", mime="text/csv")
+
 # ===== 底部更新公告 =====
 with st.expander("📢 更新公告", expanded=False):
     st.markdown(
