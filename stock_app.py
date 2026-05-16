@@ -245,24 +245,6 @@ def resolve_stock_input(user_input: str) -> str:
 
     return text
 
-def search_stock_candidates(keyword: str, limit: int = 8):
-    """搜尋可能符合的股票名稱/代碼。"""
-    keyword = str(keyword).strip()
-
-    if not keyword:
-        return []
-
-    stock_map = load_stock_name_map()
-
-    results = []
-
-    for code, info in stock_map.items():
-        name = str(info.get("shortName", ""))
-
-        if keyword in code or keyword in name:
-            results.append((code, name))
-
-    return results[:limit]
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
 def load_ticker_info(ticker_symbol: str) -> Dict:
@@ -1731,6 +1713,7 @@ def mode_difference_table() -> pd.DataFrame:
 
 # ===== 更新公告文字 =====
 CHANGELOG_TEXT = """
+2026.05.16 修改股票搜尋，輸入名稱或代碼都可以
 2026.05.15 新增 AI 潛力股選股
 2026.05.15 資料區間改為自訂開始日期～結束日期，回測新增自訂參數模式與買賣點標注
 2026.05.15 最佳化參數修改為穩健分數最高、報酬最高兩種模式
@@ -1817,14 +1800,7 @@ st.title("📈 台股投資分析")
 st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
 with st.sidebar:
     st.header("股票設定")
-    raw_code = st.text_input("股票代碼", value="2330", help="可輸入 2330、8069、0050，也可輸入 2330.TW/8069.TWO")
-    
-    candidates = search_stock_candidates(raw_code)
-    if candidates and not raw_code.isdigit():
-        st.caption("可能股票：")
-
-        for code, name in candidates:
-            st.caption(f"{code} {name}")
+    raw_code = st.text_input("股票", value="台積電", help="可輸入公司名稱或股票代碼")
     
     st.subheader("資料區間設定")
     today = pd.Timestamp.today().date()
@@ -1850,7 +1826,7 @@ with st.sidebar:
     st.caption(f"分析區間：{start_date} ～ {end_date}")
     mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=False)
     capital = st.number_input("帳戶資金（元）", min_value=1, value=100000, step=10000)
-    risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=1.0, step=0.1, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
+    risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=10.0, step=1, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
     analyze = st.button("更新並分析", type="primary", use_container_width=True)
     st.divider()
     watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
@@ -2799,7 +2775,7 @@ if run_watchlist:
     progress = st.progress(0)
     for i, code in enumerate(codes):
         try:
-            raw_df, resolved = load_price_data(normalize_tw_ticker(code))
+            raw_df, resolved = load_price_data(resolve_stock_input(code))
             
             # 按用戶指定的日期範圍裁切
             start_ts = pd.Timestamp(start_date)
