@@ -1808,27 +1808,15 @@ def get_tw_stock_list():
 # =========================
 st.title("📈 台股投資分析")
 st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
-raw_code = st.text_input(
-    "股票代碼或公司名稱",
-    value="2330",
-    help="可輸入 2330、台積電、鴻海"
-)
+with st.sidebar:
+    st.header("股票設定")
 
-stock_map = load_stock_name_map()
+    raw_code = st.text_input(
+        "股票代碼",
+        value="2330",
+        help="可輸入 2330、8069、0050，也可輸入 2330.TW/8069.TWO"
+    )
 
-if not str(raw_code).isdigit():
-    matched = [
-        code for code, info in stock_map.items()
-        if raw_code in str(info.get("shortName", ""))
-        or raw_code in str(info.get("longName", ""))
-    ]
-
-    if matched:
-        raw_code = matched[0]
-    else:
-        st.warning("找不到對應股票，請改用股票代碼。")
-        raw_code = "2330"
-    
     st.subheader("資料區間設定")
     today = pd.Timestamp.today().date()
     
