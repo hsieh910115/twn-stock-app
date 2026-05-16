@@ -25,7 +25,7 @@ import urllib3
 # 基本設定
 # =========================
 APP_TITLE = "台股投資分析"
-DEFAULT_WATCHLIST = "2330"
+DEFAULT_WATCHLIST = "台積電\n聯發科"
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide")
 
