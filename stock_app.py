@@ -1825,8 +1825,8 @@ with st.sidebar:
     
     st.caption(f"分析區間：{start_date} ～ {end_date}")
     mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=False)
-    capital = st.number_input("帳戶資金（元）", min_value=1, value=100000, step=10000)
-    risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=10.0, step=1.0, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
+    #capital = st.number_input("帳戶資金（元）", min_value=1, value=100000, step=10000)
+    #risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=10.0, step=1.0, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
     analyze = st.button("更新並分析", type="primary", use_container_width=True)
     st.divider()
     watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
@@ -1923,9 +1923,12 @@ if analyze:
         c5.metric("20日年化波動", format_number(last["Volatility_20D"] * 100, 1, "%"))
         c6.metric("目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
 
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
-            ["總覽", "技術圖表", "基本面", "風險控管", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
-            )        
+        # tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
+        #     ["總覽", "技術圖表", "基本面", "風險控管", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
+        #     )      
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+            ["總覽", "技術圖表", "基本面", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
+            )      
         with tab1:
             left, right = st.columns([1, 1])
             with left:
@@ -2010,33 +2013,33 @@ if analyze:
                     else:
                         st.warning(f"最新一季營收季增率約 {latest_growth:.2f}%，需確認是淡季、循環下滑或公司特殊因素。")
 
+        # with tab4:
+        #     st.markdown("#### 單筆交易風險規劃")
+        #     st.info(f"目前設定單筆最大風險為 {risk_pct:.2f}% ; 帳戶資金為 {capital:,.0f} 元，這筆交易理論上最多承受約 {capital * risk_pct / 100:,.0f} 元損失。")
+        #     plan = risk_plan(last, capital, risk_pct)
+        #     if not plan:
+        #         st.info("ATR 資料不足，暫無法建立風險規劃。")
+        #     else:
+        #         r1, r2, r3, r4, r5 = st.columns(5)
+        #         r1.metric("建議停損", format_number(plan["stop_loss"], 2))
+        #         r2.metric("參考停利", format_number(plan["take_profit"], 2))
+        #         r3.metric("可承受損失", format_number(plan["risk_budget"], 0))
+        #         r4.metric("估算張數", f"{plan['lots']:.2f} 張")
+        #         r5.metric("估算股數", f"{plan['shares']:,} 股")
+        #         st.caption("單筆最大風險＝這一筆交易最多願意虧掉帳戶資金的比例。停損以 2×ATR、停利以 3×ATR 粗估；實務上請再搭配支撐壓力、財報事件與大盤環境調整。")
+
+        #     st.markdown("#### 交易前檢核")
+        #     checklist = [
+        #         "是否確認最新資料日期不是過舊？",
+        #         "是否知道本次進場理由是趨勢、反彈、存股，還是事件交易？",
+        #         "是否先設定停損價、停利價與最大損失？",
+        #         "若明天開低，是否仍能接受這個部位大小？",
+        #         "是否避開重大財報、法說、除權息或政策事件前後的非預期風險？",
+        #     ]
+        #     for x in checklist:
+        #         st.checkbox(x, value=False)
+
         with tab4:
-            st.markdown("#### 單筆交易風險規劃")
-            st.info(f"目前設定單筆最大風險為 {risk_pct:.2f}% ; 帳戶資金為 {capital:,.0f} 元，這筆交易理論上最多承受約 {capital * risk_pct / 100:,.0f} 元損失。")
-            plan = risk_plan(last, capital, risk_pct)
-            if not plan:
-                st.info("ATR 資料不足，暫無法建立風險規劃。")
-            else:
-                r1, r2, r3, r4, r5 = st.columns(5)
-                r1.metric("建議停損", format_number(plan["stop_loss"], 2))
-                r2.metric("參考停利", format_number(plan["take_profit"], 2))
-                r3.metric("可承受損失", format_number(plan["risk_budget"], 0))
-                r4.metric("估算張數", f"{plan['lots']:.2f} 張")
-                r5.metric("估算股數", f"{plan['shares']:,} 股")
-                st.caption("單筆最大風險＝這一筆交易最多願意虧掉帳戶資金的比例。停損以 2×ATR、停利以 3×ATR 粗估；實務上請再搭配支撐壓力、財報事件與大盤環境調整。")
-
-            st.markdown("#### 交易前檢核")
-            checklist = [
-                "是否確認最新資料日期不是過舊？",
-                "是否知道本次進場理由是趨勢、反彈、存股，還是事件交易？",
-                "是否先設定停損價、停利價與最大損失？",
-                "若明天開低，是否仍能接受這個部位大小？",
-                "是否避開重大財報、法說、除權息或政策事件前後的非預期風險？",
-            ]
-            for x in checklist:
-                st.checkbox(x, value=False)
-
-        with tab5:
             st.markdown("#### 多策略回測中心")
             st.info("檢查：不同交易規則在過去同一段資料期間內表現如何。")
 
@@ -2322,7 +2325,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                     - **布林下軌反彈**：適合箱型整理股，跌到區間下緣搶短彈。
                     """)
 
-        with tab6:
+        with tab5:
             st.markdown("#### 策略執行助手")
             st.info("將回測策略轉換成實際操作條件：現在是否可進場、若尚未進場應等待什麼條件、進場後何時出場。")
 
@@ -2402,7 +2405,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
 
             st.caption("提醒：此頁只把策略轉成條件式操作規則，不代表預測未來價格，也不構成投資建議。")
               
-        with tab7:
+        with tab6:
             st.markdown("## 短線與長線模式差異")
 
             st.info(
@@ -2531,7 +2534,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
             )
 
 
-        with tab8:
+        with tab7:
             st.header(" AI 妖股選股")
             st.caption("每日 18:00 自動更新")
 
@@ -2642,7 +2645,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                 )
                 
                 
-        with tab9:
+        with tab8:
             st.header("AI 潛力股選股")
             st.caption("每日 18:00 自動更新，尋找尚未發動但具低估修復潛力的股票。")
 
