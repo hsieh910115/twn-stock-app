@@ -42,6 +42,123 @@ INSTITUTIONAL_COLUMNS = [
     "Institutional_Net_Ratio_5D",
     "Institutional_Net_Ratio_20D",
 ]
+SCORE_CALIBRATION = {
+    "short": {"min": -12.0, "max": 12.0, "label": "短線／波段"},
+    "long": {"min": -11.0, "max": 11.0, "label": "長線／存股"},
+}
+FACTOR_KEYS = ["趨勢結構", "動能量價", "乖離/過熱", "相對強弱", "法人籌碼", "基本面", "風險"]
+FACTOR_WEIGHT_PRESETS = {
+    "預設權重": {
+        "趨勢結構": 1.0,
+        "動能量價": 1.0,
+        "乖離/過熱": 1.0,
+        "相對強弱": 1.0,
+        "法人籌碼": 1.0,
+        "基本面": 1.0,
+        "風險": 1.0,
+    },
+    "短線動能型": {
+        "趨勢結構": 1.2,
+        "動能量價": 1.35,
+        "乖離/過熱": 1.1,
+        "相對強弱": 1.2,
+        "法人籌碼": 1.0,
+        "基本面": 0.6,
+        "風險": 0.8,
+    },
+    "長線穩健型": {
+        "趨勢結構": 1.1,
+        "動能量價": 0.6,
+        "乖離/過熱": 1.1,
+        "相對強弱": 1.0,
+        "法人籌碼": 0.8,
+        "基本面": 1.35,
+        "風險": 1.3,
+    },
+}
+
+INDICATOR_HELP = {
+    "收盤價": "最新交易日收盤價；括號內為相對前一交易日的漲跌幅。",
+    "Close": "每日收盤價，是多數均線、乖離率與報酬率計算的基礎。",
+    "Volume": "每日成交股數，用來判斷量能是否配合價格變化。",
+    "MA5": "近 5 日平均收盤價，反映很短線的價格方向。",
+    "MA20": "近 20 日平均收盤價，常作為月線與波段趨勢參考。",
+    "MA60": "近 60 日平均收盤價，常作為季線與中期趨勢參考。",
+    "MA120": "近 120 日平均收盤價，常作為半年線與中長期趨勢參考。",
+    "MA240": "近 240 日平均收盤價，常作為年線與長期趨勢參考。",
+    "RSI14": "14 日相對強弱指標，50 以上偏強，70 以上常代表短線偏熱，30 以下偏弱。",
+    "MACD柱": "MACD DIF 與 Signal 的差值；柱體轉正且擴大代表動能轉強。",
+    "MACD_DIF": "短期與長期 EMA 的差值；向上代表短期動能相對長期轉強。",
+    "MACD_SIGNAL": "MACD DIF 的平滑線，用來判斷 MACD 交叉訊號。",
+    "MACD_HIST": "MACD DIF 減 Signal；柱體轉正且擴大代表動能轉強。",
+    "20日量比": "今日成交量除以近 20 日均量；大於 1 代表量能高於近期平均。",
+    "Volume_Ratio": "今日成交量除以近 20 日均量；大於 1 代表量能高於近期平均。",
+    "BIAS5": "股價相對 MA5 的乖離率；用來看極短線是否偏離均線太多。",
+    "BIAS20": "股價相對 MA20 月線的乖離率；正值代表在月線上方，過高代表追價風險增加。",
+    "BIAS60": "股價相對 MA60 季線的乖離率；用來看中期是否過熱或仍偏弱。",
+    "BB_UPPER": "布林通道上軌，股價靠近或突破時常代表短線偏熱或趨勢延伸。",
+    "BB_MID": "布林通道中線，通常接近 MA20，可作為波段均值參考。",
+    "BB_LOWER": "布林通道下軌，股價靠近時常代表弱勢或短線超跌。",
+    "ATR14": "近 14 日平均真實波幅，用來估計正常波動範圍與停損距離。",
+    "Return_5D": "近 5 日價格報酬率，用來觀察短線動能。",
+    "Return_20D": "近 20 日價格報酬率，用來觀察月線級別動能。",
+    "RS_20D": "近 20 日股票報酬相對 0050 的超額表現；正值代表跑贏 0050。",
+    "RS_60D": "近 60 日股票報酬相對 0050 的超額表現；用來看波段相對強弱。",
+    "RS_120D": "近 120 日股票報酬相對 0050 的超額表現；用來看較長週期強弱。",
+    "RPS_Proxy": "用 20/60/120 日相對 0050 的表現推估強弱分數；50 附近中性，越高越強。",
+    "RPS(0050)": "用 20/60/120 日相對 0050 的表現推估強弱分數；50 附近中性，越高越強。",
+    "Institutional_Net_Ratio_5D": "近 5 日三大法人合計買賣超占近 5 日成交量的比例；正值偏買，負值偏賣。",
+    "Institutional_Net_20D": "近 20 日三大法人合計買賣超；用來觀察中期籌碼是偏累積或偏流出。",
+    "法人5日佔量": "近 5 日三大法人合計買賣超占近 5 日成交量的比例；正值偏買，負值偏賣。",
+    "目前回撤": "目前股價相對歷史高點的跌幅；負值越大代表距高點越遠。",
+    "本益比 PE": "股價除以每股盈餘，衡量市場願意用多少倍盈餘買進公司。",
+    "EPS": "每股盈餘，代表每一股可分攤到的獲利；此處以股價除以 PE 推估。",
+    "殖利率": "現金股利相對股價的比例，用來觀察股息報酬吸引力。",
+    "Beta": "衡量股價相對大盤的波動敏感度；大於 1 通常比大盤波動更大。",
+    "營收(億)": "公司單季營業收入，單位為新台幣億元。",
+    "毛利(億)": "營收扣除銷貨成本後的毛利，單位為新台幣億元。",
+    "營業利益(億)": "本業營運產生的利益，單位為新台幣億元。",
+    "淨利(億)": "扣除成本、費用與稅後的最終獲利，單位為新台幣億元。",
+    "營收QoQ%": "最新一季營收相對上一季的變化率，用來看短期動能。",
+    "營收YoY%": "最新一季營收相對去年同季的變化率，用來看年成長。",
+    "淨利YoY%": "最新一季淨利相對去年同季的變化率，用來看獲利成長。",
+    "RS 20D": "近 20 日股票報酬相對 0050 的超額表現；正值代表跑贏 0050。",
+    "RS 60D": "近 60 日股票報酬相對 0050 的超額表現；用來看波段相對強弱。",
+    "RS 120D": "近 120 日股票報酬相對 0050 的超額表現；用來看較長週期強弱。",
+    "累積報酬": "策略在回測期間的總報酬，已依設定扣除交易成本。",
+    "策略總報酬": "策略在回測期間的累積報酬，已依設定扣除交易成本。",
+    "策略總報酬%": "策略在回測期間的累積報酬率，已依設定扣除交易成本。",
+    "買進持有": "同期間單純買進並持有的累積報酬，用來當策略比較基準。",
+    "買進持有%": "同期間單純買進並持有的累積報酬率，用來當策略比較基準。",
+    "年化報酬": "把回測期間報酬換算成年化後的報酬率。",
+    "年化報酬%": "把回測期間報酬換算成年化後的報酬率。",
+    "最大回撤": "策略淨值從高點到低點的最大跌幅；越小代表歷史虧損壓力越低。",
+    "最大回撤%": "策略淨值從高點到低點的最大跌幅；越小代表歷史虧損壓力越低。",
+    "Sharpe": "報酬相對波動的效率；越高代表承擔同樣波動得到的報酬較好。",
+    "持股時間": "策略在回測期間內持有股票的時間比例。",
+    "持股時間%": "策略在回測期間內持有股票的時間比例。",
+    "交易次數": "策略在回測期間觸發進場的次數；太少時統計意義較弱。",
+    "穩健分數": "參數最佳化用的綜合分數，結合 Sharpe、年化報酬與最大回撤。",
+    "目前狀態": "依所選策略判斷目前是否符合持有、進場或等待條件。",
+    "現價": "最新收盤價，用來和策略關鍵價位比較。",
+    "關鍵價位": "所選策略目前最重要的參考價位，例如均線、突破價或布林下軌。",
+    "距離關鍵價位": "現價相對關鍵價位的百分比距離；正值代表在關鍵價位上方。",
+    "AI_Score": "AI 妖股動能分數，綜合波動、趨勢、乖離與短線動能排名。",
+    "F_Hist_Vol": "歷史年化波動率；越高代表價格震盪越大，短線機會與風險都較高。",
+    "F_BB_Width": "布林通道寬度；越寬代表近期波動擴大。",
+    "F_P_to_MA60": "股價相對 MA60 的距離；正值代表在季線上方。",
+    "F_Trend_Strength": "MA20 與 MA60 的距離，用來衡量趨勢斜率與強度。",
+    "F_P_to_MA20": "股價相對 MA20 的距離；過高可能代表短線偏熱。",
+    "F_P_to_BBUpper": "股價距離布林上軌的百分比；越接近上軌代表越偏強或偏熱。",
+    "F_ROC_10": "近 10 日價格動能；正值越高代表短線推升越明顯。",
+    "AI_Potential_Score": "AI 潛力分數，綜合跌深修復、低檔整理、波動控制與潛伏條件。",
+    "Hist_Vol": "年化歷史波動率；用來判斷風險是否過高。",
+    "MA_Compression": "多條均線彼此靠近的程度；數值越低代表均線越糾結，常見於整理期。",
+    "Drawdown_52W": "股價相對 52 週高點的回落幅度；負值越大代表跌深程度越高。",
+    "Rebound_Space": "若股價往 52 週高點修復，理論上還有多少空間。",
+    "P_to_MA60": "股價相對 MA60 的距離；用來看是否逐步回到中期均線附近。",
+    "P_to_MA120": "股價相對 MA120 的距離；用來看中長期修復位置。",
+}
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide")
 
@@ -118,6 +235,56 @@ def format_shares(value) -> str:
     if value >= 1e4:
         return f"{sign}{value / 1e4:.1f} 萬股"
     return f"{sign}{value:,.0f} 股"
+
+
+def indicator_help(label: str) -> Optional[str]:
+    return INDICATOR_HELP.get(str(label))
+
+
+def metric_with_help(target, label: str, value, delta=None, delta_color: str = "normal") -> None:
+    kwargs = {
+        "label": label,
+        "value": value,
+        "help": indicator_help(label),
+    }
+    if delta is not None:
+        kwargs["delta"] = delta
+        kwargs["delta_color"] = delta_color
+    target.metric(**kwargs)
+
+
+def indicator_column_config(columns: List[str]) -> Dict:
+    config = {}
+    for col in columns:
+        help_text = INDICATOR_HELP.get(col)
+        if help_text:
+            config[col] = st.column_config.NumberColumn(col, help=help_text)
+    return config
+
+
+def score_calibration_for_mode(mode: str) -> Dict:
+    return SCORE_CALIBRATION["short"] if "短線" in mode else SCORE_CALIBRATION["long"]
+
+
+def format_score_range(score_range: List[float]) -> str:
+    return f"{score_range[0]:g}～{score_range[1]:+g}"
+
+
+def default_factor_weights() -> Dict[str, float]:
+    return FACTOR_WEIGHT_PRESETS["預設權重"].copy()
+
+
+def normalize_factor_weights(weights: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    base = default_factor_weights()
+    if weights:
+        for factor in FACTOR_KEYS:
+            base[factor] = float(weights.get(factor, base[factor]))
+    return base
+
+
+def weights_are_default(weights: Dict[str, float]) -> bool:
+    defaults = default_factor_weights()
+    return all(abs(float(weights.get(factor, 1.0)) - defaults[factor]) < 1e-9 for factor in FACTOR_KEYS)
 
 
 def get_finmind_token() -> str:
@@ -688,14 +855,15 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
-    """統一 -15~+15 評分架構，納入乖離、相對強弱與法人籌碼。"""
+def score_stock(df: pd.DataFrame, info: Dict, mode: str, factor_weights: Optional[Dict[str, float]] = None) -> Dict:
+    """依模式校準顯示分數，納入乖離、相對強弱與法人籌碼。"""
 
     last = df.iloc[-1]
     prev = df.iloc[-2]
     score = 0.0
     reasons: List[str] = []
     warnings: List[str] = []
+    is_short_mode = "短線" in mode
     factor_scores = {
         "趨勢結構": 0.0,
         "動能量價": 0.0,
@@ -732,7 +900,7 @@ def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
     foreign_5d = safe_float(last.get("Foreign_Net_5D"))
     trust_5d = safe_float(last.get("Investment_Trust_Net_5D"))
 
-    if "短線" in mode:
+    if is_short_mode:
         if is_valid_number(last.get("MA5")) and is_valid_number(last.get("MA20")):
             if close > last["MA5"] > last["MA20"]:
                 add(2.5, "趨勢結構", "短均線呈多頭排列，短線趨勢偏強。")
@@ -872,9 +1040,17 @@ def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
     if is_valid_number(inst_5d) and is_valid_number(inst_20d) and inst_5d < 0 and inst_20d < 0:
         warnings.append("法人近 5 日與 20 日同為賣超，短期籌碼壓力尚未解除。")
 
-    raw_score = score
-    score_min, score_max = -15, 15
-    score = max(score_min, min(score_max, score))
+    active_weights = normalize_factor_weights(factor_weights)
+    weighted_factor_scores = {
+        factor: factor_scores.get(factor, 0.0) * active_weights.get(factor, 1.0)
+        for factor in FACTOR_KEYS
+    }
+    base_raw_score = score
+    raw_score = sum(weighted_factor_scores.values())
+    calibration = score_calibration_for_mode(mode)
+    score_min = float(calibration["min"])
+    score_max = float(calibration["max"])
+    score = max(score_min, min(score_max, raw_score))
     score_10 = round((score - score_min) / (score_max - score_min) * 10, 1)
 
     if score_10 >= 8.5:
@@ -892,6 +1068,7 @@ def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
 
     return {
         "score": round(score, 2),
+        "base_raw_score": round(base_raw_score, 2),
         "raw_score": round(raw_score, 2),
         "score_10": score_10,
         "raw_range": [score_min, score_max],
@@ -900,6 +1077,8 @@ def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
         "reasons": reasons[:8],
         "warnings": warnings[:8],
         "factor_scores": {key: round(value, 2) for key, value in factor_scores.items()},
+        "weighted_factor_scores": {key: round(value, 2) for key, value in weighted_factor_scores.items()},
+        "factor_weights": {key: round(float(value), 2) for key, value in active_weights.items()},
     }
 
 def compute_backtest_stats(bt: pd.DataFrame) -> Dict:
@@ -1622,12 +1801,41 @@ def make_institutional_chart(df: pd.DataFrame, rows: int = 120):
 
     colors = np.where(plot["Institutional_Net"] >= 0, "#D32F2F", "#00A65A")
     fig = make_subplots(
-        rows=2,
+        rows=3,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.08,
-        row_heights=[0.55, 0.45],
+        vertical_spacing=0.045,
+        row_heights=[0.46, 0.25, 0.29],
     )
+    fig.add_trace(
+        go.Scatter(
+            x=plot["日期"],
+            y=plot["Close"],
+            mode="lines",
+            name="收盤價",
+            line=dict(color="#111827", width=2.2),
+            hovertemplate="收盤價 %{y:,.2f}<extra></extra>",
+        ),
+        row=1,
+        col=1,
+    )
+    for col, name, color in [
+        ("MA20", "MA20", "#0F766E"),
+        ("MA60", "MA60", "#2563EB"),
+    ]:
+        if col in plot.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=plot["日期"],
+                    y=plot[col],
+                    mode="lines",
+                    name=name,
+                    line=dict(color=color, width=1.5),
+                    hovertemplate=f"{name} %{{y:,.2f}}<extra></extra>",
+                ),
+                row=1,
+                col=1,
+            )
     fig.add_trace(
         go.Bar(
             x=plot["日期"],
@@ -1637,7 +1845,7 @@ def make_institutional_chart(df: pd.DataFrame, rows: int = 120):
             opacity=0.75,
             hovertemplate="法人買賣超 %{y:,.0f} 股<extra></extra>",
         ),
-        row=1,
+        row=2,
         col=1,
     )
     for col, name, color in [
@@ -1655,18 +1863,21 @@ def make_institutional_chart(df: pd.DataFrame, rows: int = 120):
                     line=dict(color=color, width=2),
                     hovertemplate=f"{name} %{{y:,.0f}} 股<extra></extra>",
                 ),
-                row=2,
+                row=3,
                 col=1,
             )
     fig.update_layout(
-        height=420,
+        height=620,
         hovermode="x",
         margin=dict(l=10, r=10, t=20, b=10),
         legend=dict(orientation="h", y=1.08),
         template="plotly_white",
     )
-    fig.update_yaxes(title_text="單日", row=1, col=1)
-    fig.update_yaxes(title_text="累計", row=2, col=1)
+    fig.update_yaxes(title_text="股價", row=1, col=1, fixedrange=False)
+    fig.update_yaxes(title_text="單日法人", row=2, col=1, fixedrange=False)
+    fig.update_yaxes(title_text="累計法人", row=3, col=1, fixedrange=False)
+    fig.update_xaxes(showspikes=True, spikecolor="black", spikemode="across", spikesnap="cursor")
+    fig.update_yaxes(showspikes=True, spikecolor="black", spikemode="across")
     return fig
 
 
@@ -1906,7 +2117,9 @@ def mode_difference_table() -> pd.DataFrame:
 
 # ===== 更新公告文字 =====
 CHANGELOG_TEXT = """
-2026.05.27 強化評分：新增乖離率、相對0050強弱/RPS proxy、三大法人籌碼，並改為 -15～+15 分項評分
+2026.05.27 新增評分權重模式：保留預設分數，並可用短線動能型、長線穩健型或自訂權重調整排序
+2026.05.27 評分校準：短線改以約 -12～+12、長線改以約 -11～+11 轉換 0～10 分，讓高分更貼近實際可達條件
+2026.05.27 強化評分：新增乖離率、相對0050強弱/RPS proxy、三大法人籌碼，並建立分項原始加減分
 2026.05.16 修改股票搜尋，輸入名稱或代碼都可以
 2026.05.15 新增 AI 潛力股選股
 2026.05.15 資料區間改為自訂開始日期～結束日期，回測新增自訂參數模式與買賣點標注
@@ -2019,6 +2232,37 @@ with st.sidebar:
     
     st.caption(f"分析區間：{start_date} ～ {end_date}")
     mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=False)
+
+    with st.expander("評分權重設定", expanded=False):
+        weight_profile = st.selectbox(
+            "權重模式",
+            list(FACTOR_WEIGHT_PRESETS.keys()) + ["自訂權重"],
+            help="權重只調整各大因子的影響力；1.0 代表使用預設分數，0 代表不採計該因子，2.0 代表加倍重視。",
+        )
+        if weight_profile == "自訂權重":
+            custom_base = st.selectbox(
+                "自訂基準",
+                list(FACTOR_WEIGHT_PRESETS.keys()),
+                help="先選一組接近自己風格的基準，再微調每個因子的權重。",
+            )
+            active_factor_weights = FACTOR_WEIGHT_PRESETS[custom_base].copy()
+            for factor in FACTOR_KEYS:
+                active_factor_weights[factor] = st.slider(
+                    factor,
+                    min_value=0.0,
+                    max_value=2.0,
+                    value=float(active_factor_weights[factor]),
+                    step=0.1,
+                    key=f"factor_weight_{factor}",
+                )
+        else:
+            active_factor_weights = FACTOR_WEIGHT_PRESETS[weight_profile].copy()
+
+        if weights_are_default(active_factor_weights):
+            st.caption("目前使用預設權重，分數可直接與其他股票比較。")
+        else:
+            st.caption("目前使用自訂/風格化權重；排序會更貼近你的偏好，但仍建議同時參考預設分數。")
+
     analyze = st.button("更新並分析", type="primary", use_container_width=True)
     st.divider()
     watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
@@ -2083,20 +2327,33 @@ if analyze:
         else:
             st.caption(f"最新交易日：{latest_date}")
 
-        score = score_stock(df, {**fast_info, **info}, mode)
-        score_text = (
-            f"綜合評分：{score['score_10']}/10"
-            f"｜{score['label']}"
+        default_score = score_stock(df, {**fast_info, **info}, mode)
+        use_custom_weights = not weights_are_default(active_factor_weights)
+        score = (
+            score_stock(df, {**fast_info, **info}, mode, factor_weights=active_factor_weights)
+            if use_custom_weights
+            else default_score
         )
 
-        if score["level"] == "success":
-            st.success(score_text)
-        elif score["level"] == "error":
-            st.error(score_text)
-        elif score["level"] == "warning":
-            st.warning(score_text)
+        def render_score_status(score_data: Dict, title: str) -> None:
+            score_text = f"{title}：{score_data['score_10']}/10｜{score_data['label']}"
+            if score_data["level"] == "success":
+                st.success(score_text)
+            elif score_data["level"] == "error":
+                st.error(score_text)
+            elif score_data["level"] == "warning":
+                st.warning(score_text)
+            else:
+                st.info(score_text)
+
+        if use_custom_weights:
+            dcol, acol = st.columns(2)
+            with dcol:
+                render_score_status(default_score, "預設評分")
+            with acol:
+                render_score_status(score, f"{weight_profile}評分")
         else:
-            st.info(score_text)
+            render_score_status(score, "綜合評分")
             
         c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
         price_change = safe_float(last["Close"] - prev["Close"])
@@ -2106,19 +2363,20 @@ if analyze:
         else:
             delta_color = "inverse"  # 台股：跌=綠
 
-        c1.metric(
+        metric_with_help(
+            c1,
             "收盤價",
             format_number(last["Close"], 2),
             delta=f"{price_change:+,.2f} ({price_change_pct:+.2f}%)",
             delta_color=delta_color,
         )
-        c2.metric("RSI14", format_number(last["RSI14"], 1))
-        c3.metric("MACD柱", format_number(last["MACD_HIST"], 2))
-        c4.metric("20日量比", format_number(last["Volume_Ratio"], 2))
-        c5.metric("BIAS20", format_number(last.get("BIAS20"), 1, "%"))
-        c6.metric("RPS(0050)", format_number(last.get("RPS_Proxy"), 1))
-        c7.metric("法人5日佔量", format_number(last.get("Institutional_Net_Ratio_5D"), 1, "%"))
-        c8.metric("目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
+        metric_with_help(c2, "RSI14", format_number(last["RSI14"], 1))
+        metric_with_help(c3, "MACD柱", format_number(last["MACD_HIST"], 2))
+        metric_with_help(c4, "20日量比", format_number(last["Volume_Ratio"], 2))
+        metric_with_help(c5, "BIAS20", format_number(last.get("BIAS20"), 1, "%"))
+        metric_with_help(c6, "RPS(0050)", format_number(last.get("RPS_Proxy"), 1))
+        metric_with_help(c7, "法人5日佔量", format_number(last.get("Institutional_Net_Ratio_5D"), 1, "%"))
+        metric_with_help(c8, "目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
 
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
             ["總覽", "技術圖表", "基本面", "籌碼強弱", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
@@ -2142,10 +2400,23 @@ if analyze:
 
             st.markdown("#### 分項分數")
             factor_df = pd.DataFrame(
-                [{"因子": key, "原始加減分": value} for key, value in score.get("factor_scores", {}).items()]
+                [
+                    {
+                        "因子": factor,
+                        "原始加減分": score.get("factor_scores", {}).get(factor, 0.0),
+                        "權重": score.get("factor_weights", {}).get(factor, 1.0),
+                        "加權後分數": score.get("weighted_factor_scores", {}).get(factor, 0.0),
+                    }
+                    for factor in FACTOR_KEYS
+                ]
             )
             st.dataframe(factor_df, hide_index=True, use_container_width=True)
-            st.caption("新版分數已納入乖離/過熱、相對 0050 強弱，以及三大法人籌碼。原始分數區間為 -15～+15，再轉換成 0～10 分。")
+            score_range_text = format_score_range(score["raw_range"])
+            st.caption(
+                f"新版分數已納入乖離/過熱、相對 0050 強弱，以及三大法人籌碼。"
+                f"目前模式以加權後原始分數 {score_range_text} 校準為 0～10 分；"
+                f"本次預設原始分數為 {score['base_raw_score']:.2f}，加權後原始分數為 {score['raw_score']:.2f}，0 分代表中性。"
+            )
 
             st.markdown("#### 關鍵價位")
             levels = pd.DataFrame(
@@ -2175,7 +2446,11 @@ if analyze:
                 "RPS_Proxy", "Institutional_Net_Ratio_5D", "Institutional_Net_20D",
             ]
             indicator_cols = [col for col in indicator_cols if col in df.columns]
-            st.dataframe(df[indicator_cols].tail(30).iloc[::-1], use_container_width=True)
+            st.dataframe(
+                df[indicator_cols].tail(30).iloc[::-1],
+                use_container_width=True,
+                column_config=indicator_column_config(indicator_cols),
+            )
 
         with tab3:
             fin_table = build_financial_table(stmt, resolved_ticker)
@@ -2199,10 +2474,10 @@ if analyze:
             # ===== 顯示 =====
             f1, f2, f3, f4 = st.columns(4)
 
-            f1.metric("本益比 PE", format_number(pe, 2))
-            f2.metric("EPS", format_number(eps, 2))
-            f3.metric("殖利率", format_number(dividend_yield, 2, "%"))
-            f4.metric("Beta", format_number(beta, 2))
+            metric_with_help(f1, "本益比 PE", format_number(pe, 2))
+            metric_with_help(f2, "EPS", format_number(eps, 2))
+            metric_with_help(f3, "殖利率", format_number(dividend_yield, 2, "%"))
+            metric_with_help(f4, "Beta", format_number(beta, 2))
 
             st.caption(
                 "PE、殖利率優先使用 FinMind；EPS 以股價 ÷ PE 推估；"
@@ -2213,7 +2488,11 @@ if analyze:
             else:
                 st.markdown("#### 財務趨勢")
                 st.caption("QoQ 是季增率，YoY 是與去年同季相比。")
-                st.dataframe(fin_table.iloc[::-1], use_container_width=True)
+                st.dataframe(
+                    fin_table.iloc[::-1],
+                    use_container_width=True,
+                    column_config=indicator_column_config(list(fin_table.columns)),
+                )
                 if "營收QoQ%" in fin_table.columns and not fin_table["營收QoQ%"].dropna().empty:
                     latest_growth = fin_table["營收QoQ%"].dropna().iloc[-1]
                     if latest_growth > 0:
@@ -2252,12 +2531,12 @@ if analyze:
             st.info("這一頁聚焦新版評分新增的三個選股確認因子：是否過熱、是否打贏 0050、法人籌碼是否同向。")
 
             k1, k2, k3, k4, k5, k6 = st.columns(6)
-            k1.metric("BIAS20", format_number(last.get("BIAS20"), 2, "%"))
-            k2.metric("BIAS60", format_number(last.get("BIAS60"), 2, "%"))
-            k3.metric("RS 20D", format_number(last.get("RS_20D") * 100 if is_valid_number(last.get("RS_20D")) else np.nan, 2, "%"))
-            k4.metric("RS 60D", format_number(last.get("RS_60D") * 100 if is_valid_number(last.get("RS_60D")) else np.nan, 2, "%"))
-            k5.metric("RPS(0050)", format_number(last.get("RPS_Proxy"), 1))
-            k6.metric("法人5日佔量", format_number(last.get("Institutional_Net_Ratio_5D"), 2, "%"))
+            metric_with_help(k1, "BIAS20", format_number(last.get("BIAS20"), 2, "%"))
+            metric_with_help(k2, "BIAS60", format_number(last.get("BIAS60"), 2, "%"))
+            metric_with_help(k3, "RS 20D", format_number(last.get("RS_20D") * 100 if is_valid_number(last.get("RS_20D")) else np.nan, 2, "%"))
+            metric_with_help(k4, "RS 60D", format_number(last.get("RS_60D") * 100 if is_valid_number(last.get("RS_60D")) else np.nan, 2, "%"))
+            metric_with_help(k5, "RPS(0050)", format_number(last.get("RPS_Proxy"), 1))
+            metric_with_help(k6, "法人5日佔量", format_number(last.get("Institutional_Net_Ratio_5D"), 2, "%"))
 
             st.markdown("##### 相對強弱")
             rs_table = pd.DataFrame({
@@ -2329,7 +2608,12 @@ if analyze:
                 st.info("資料不足，無法進行多策略回測。建議增加左側資料期間。")
             else:
                 st.markdown("##### 策略比較表")
-                st.dataframe(compare_df, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    compare_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config=indicator_column_config(list(compare_df.columns)),
+                )
 
                 strategy_name = st.selectbox("選擇要畫圖與細看的策略", list(STRATEGY_PRESETS.keys()), index=0)
                 meta = STRATEGY_PRESETS[strategy_name]
@@ -2345,13 +2629,13 @@ if analyze:
                     st.info("此策略在目前資料期間內資料不足，無法回測。")
                 else:
                     b1, b2, b3, b4, b5, b6, b7 = st.columns(7)
-                    b1.metric("策略總報酬", format_number(bt["total_return"] * 100, 1, "%"))
-                    b2.metric("買進持有", format_number(bt["buyhold_return"] * 100, 1, "%"))
-                    b3.metric("年化報酬", format_number(bt["cagr"] * 100, 1, "%"))
-                    b4.metric("最大回撤", format_number(bt["max_dd"] * 100, 1, "%"))
-                    b5.metric("Sharpe", format_number(bt["sharpe"], 2))
-                    b6.metric("持股時間", format_number(bt["exposure"] * 100, 1, "%"))
-                    b7.metric("交易次數", f"{bt['trades']} 次")
+                    metric_with_help(b1, "策略總報酬", format_number(bt["total_return"] * 100, 1, "%"))
+                    metric_with_help(b2, "買進持有", format_number(bt["buyhold_return"] * 100, 1, "%"))
+                    metric_with_help(b3, "年化報酬", format_number(bt["cagr"] * 100, 1, "%"))
+                    metric_with_help(b4, "最大回撤", format_number(bt["max_dd"] * 100, 1, "%"))
+                    metric_with_help(b5, "Sharpe", format_number(bt["sharpe"], 2))
+                    metric_with_help(b6, "持股時間", format_number(bt["exposure"] * 100, 1, "%"))
+                    metric_with_help(b7, "交易次數", f"{bt['trades']} 次")
                     st.altair_chart(make_backtest_chart(bt["df"]), use_container_width=True)
 
                     if bt["total_return"] > bt["buyhold_return"] and bt["max_dd"] > -0.25:
@@ -2395,7 +2679,12 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                             st.caption(
                                 "依照總報酬％由高到低排序"
                             )
-                        st.dataframe(opt_df, use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            opt_df,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config=indicator_column_config(list(opt_df.columns)),
+                        )
                         st.download_button(
                             "下載最佳化結果 CSV",
                             data=opt_df.to_csv(index=False).encode("utf-8-sig"),
@@ -2539,25 +2828,29 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                     col1, col2, col3, col4 = st.columns(4)
 
                     with col1:
-                        st.metric(
+                        metric_with_help(
+                            st,
                             "累積報酬",
                             f"{custom_bt['total_return'] * 100:.2f}%"
                         )
 
                     with col2:
-                        st.metric(
+                        metric_with_help(
+                            st,
                             "年化報酬",
                             f"{custom_bt['cagr'] * 100:.2f}%"
                         )
 
                     with col3:
-                        st.metric(
+                        metric_with_help(
+                            st,
                             "最大回撤",
                             f"{custom_bt['max_dd'] * 100:.2f}%"
                         )
 
                     with col4:
-                        st.metric(
+                        metric_with_help(
+                            st,
                             "Sharpe",
                             f"{custom_bt['sharpe']:.2f}"
                         )
@@ -2639,10 +2932,10 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
             advice = strategy_execution_advice(full_df, exec_strategy, params)
 
             s1, s2, s3, s4 = st.columns(4)
-            s1.metric("目前狀態", advice["status"])
-            s2.metric("現價", format_number(last["Close"], 2))
-            s3.metric("關鍵價位", format_number(advice["key_level"], 2))
-            s4.metric("距離關鍵價位", format_number(advice["distance_pct"], 2, "%"))
+            metric_with_help(s1, "目前狀態", advice["status"])
+            metric_with_help(s2, "現價", format_number(last["Close"], 2))
+            metric_with_help(s3, "關鍵價位", format_number(advice["key_level"], 2))
+            metric_with_help(s4, "距離關鍵價位", format_number(advice["distance_pct"], 2, "%"))
 
             st.markdown("#### 現在該怎麼做")
             if "符合" in advice["status"] or "可" in advice["status"]:
@@ -2667,8 +2960,9 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
             st.markdown("## 短線與長線模式差異")
 
             st.info(
-                "目前評分系統統一採用原始分數 -15～+15，"
-                "再轉換為 0～10 分。分數越高，代表越符合該操作模式的條件。"
+                "目前評分系統保留各指標的原始加減分，但顯示分數會依模式校準："
+                "短線以 -12～+12 轉換為 0～10 分，長線以 -11～+11 轉換為 0～10 分。"
+                "分數越高，代表越符合該操作模式的條件。"
             )
 
             compare_df = pd.DataFrame({
@@ -2697,16 +2991,30 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
             st.markdown("## 評分轉換方式")
 
             score_rule_df = pd.DataFrame({
-                "項目": ["原始最低分", "原始中性分", "原始最高分", "轉換方式"],
-                "短線／波段": ["-15", "0", "+15", "(-15～+15) 轉換為 0～10 分"],
-                "長線／存股": ["-15", "0", "+15", "(-15～+15) 轉換為 0～10 分"],
+                "項目": ["校準最低分", "原始中性分", "校準滿分", "7分門檻", "8.5分門檻", "轉換方式"],
+                "短線／波段": ["-12", "0", "+12", "+4.8", "+8.4", "(原始分數 + 12) / 24 × 10"],
+                "長線／存股": ["-11", "0", "+11", "+4.4", "+7.7", "(原始分數 + 11) / 22 × 10"],
             })
 
             st.dataframe(score_rule_df, hide_index=True, use_container_width=True)
 
             st.caption(
-                "轉換公式：顯示分數 = (原始分數 + 15) / 30 × 10。"
-                "因此原始分數 0 會對應到 5 分，代表中性。"
+                "這次調整只校準 0～10 顯示分數，不放寬各指標的原始加減分。"
+                "原始分數 0 仍對應 5 分，代表中性；真正強勢但不過熱的股票會更容易落在 8.5～9.5 分。"
+            )
+
+            st.markdown("---")
+            st.markdown("## 權重模式")
+            weight_df = pd.DataFrame(
+                [
+                    {"權重模式": name, **{factor: weights.get(factor, 1.0) for factor in FACTOR_KEYS}}
+                    for name, weights in FACTOR_WEIGHT_PRESETS.items()
+                ]
+            )
+            st.dataframe(weight_df, hide_index=True, use_container_width=True)
+            st.caption(
+                "權重是在分項原始分數上乘以倍數：1.0 代表預設、0 代表不採計、2.0 代表加倍重視。"
+                "自訂權重會影響綜合分數與觀察清單排序，但預設分數仍保留作為比較基準。"
             )
 
             st.markdown("---")
@@ -2721,7 +3029,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                     "法人籌碼",
                 ],
                 "最高加分": ["+2.5", "+4.8", "+1.5", "+2.0", "+1.8"],
-                "最低扣分": ["-2.5", "-4.8", "-2.6", "-2.0", "-1.8"],
+                "最低扣分": ["-2.5", "-4.3", "-4.1", "-2.0", "-1.8"],
                 "判斷重點": [
                     "股價、MA5、MA20 是否形成短線多頭或空頭排列",
                     "MACD、RSI、量比與 20 日報酬是否同步支持短線動能",
@@ -2732,6 +3040,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
             })
 
             st.dataframe(short_score_df, hide_index=True, use_container_width=True)
+            st.caption("短線原始加分理論合計約 +12.6，因此顯示分數用 +12 作為滿分校準；過熱與籌碼轉弱仍會明顯扣分。")
 
             st.markdown("---")
             st.markdown("## 長線／存股評分架構")
@@ -2764,6 +3073,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
             })
 
             st.dataframe(long_score_df, hide_index=True, use_container_width=True)
+            st.caption("長線原始加分理論合計約 +11.4，因此顯示分數用 +11 作為滿分校準；趨勢、估值與風險仍是主要權重。")
 
             st.markdown("---")
             st.markdown("## 0～10 分評語說明")
@@ -2875,20 +3185,21 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                         "ID": st.column_config.TextColumn("代號"),
                         "Name": st.column_config.TextColumn("股名"),
                         "Industry": st.column_config.TextColumn("產業"),
-                        "Close": st.column_config.NumberColumn("收盤價", format="%.2f"),
+                        "Close": st.column_config.NumberColumn("收盤價", format="%.2f", help=indicator_help("Close")),
                         "AI_Score": st.column_config.ProgressColumn(
                             "AI 動能分數",
                             min_value=0,
                             max_value=100,
                             format="%.2f",
+                            help=indicator_help("AI_Score"),
                         ),
-                        "F_Hist_Vol": st.column_config.NumberColumn("歷史波動率", format="%.2f%%"),
-                        "F_BB_Width": st.column_config.NumberColumn("布林寬度", format="%.2f%%"),
-                        "F_P_to_MA60": st.column_config.NumberColumn("距 MA60", format="%.2f%%"),
-                        "F_Trend_Strength": st.column_config.NumberColumn("趨勢強度", format="%.2f%%"),
-                        "F_P_to_MA20": st.column_config.NumberColumn("距 MA20", format="%.2f%%"),
-                        "F_P_to_BBUpper": st.column_config.NumberColumn("距布林上軌", format="%.2f%%"),
-                        "F_ROC_10": st.column_config.NumberColumn("10日動能", format="%.2f%%"),
+                        "F_Hist_Vol": st.column_config.NumberColumn("歷史波動率", format="%.2f%%", help=indicator_help("F_Hist_Vol")),
+                        "F_BB_Width": st.column_config.NumberColumn("布林寬度", format="%.2f%%", help=indicator_help("F_BB_Width")),
+                        "F_P_to_MA60": st.column_config.NumberColumn("距 MA60", format="%.2f%%", help=indicator_help("F_P_to_MA60")),
+                        "F_Trend_Strength": st.column_config.NumberColumn("趨勢強度", format="%.2f%%", help=indicator_help("F_Trend_Strength")),
+                        "F_P_to_MA20": st.column_config.NumberColumn("距 MA20", format="%.2f%%", help=indicator_help("F_P_to_MA20")),
+                        "F_P_to_BBUpper": st.column_config.NumberColumn("距布林上軌", format="%.2f%%", help=indicator_help("F_P_to_BBUpper")),
+                        "F_ROC_10": st.column_config.NumberColumn("10日動能", format="%.2f%%", help=indicator_help("F_ROC_10")),
                     }
                 )
 
@@ -2995,22 +3306,23 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                         "ID": st.column_config.TextColumn("代號"),
                         "Name": st.column_config.TextColumn("股名"),
                         "Industry": st.column_config.TextColumn("產業"),
-                        "Close": st.column_config.NumberColumn("收盤價", format="%.2f"),
+                        "Close": st.column_config.NumberColumn("收盤價", format="%.2f", help=indicator_help("Close")),
                         "AI_Potential_Score": st.column_config.ProgressColumn(
                             "AI 潛力分數",
                             min_value=0,
                             max_value=100,
                             format="%.2f",
+                            help=indicator_help("AI_Potential_Score"),
                         ),
                         "Tag": st.column_config.TextColumn("類型"),
-                        "RSI14": st.column_config.NumberColumn("RSI14", format="%.2f"),
-                        "Hist_Vol": st.column_config.NumberColumn("年化波動", format="%.2f%%"),
-                        "MA_Compression": st.column_config.NumberColumn("均線糾結度", format="%.2f%%"),
-                        "Drawdown_52W": st.column_config.NumberColumn("距52週高點", format="%.2f%%"),
-                        "Rebound_Space": st.column_config.NumberColumn("修復空間", format="%.2f%%"),
-                        "P_to_MA60": st.column_config.NumberColumn("距MA60", format="%.2f%%"),
-                        "P_to_MA120": st.column_config.NumberColumn("距MA120", format="%.2f%%"),
-                        "Volume_Ratio": st.column_config.NumberColumn("量比", format="%.2f"),
+                        "RSI14": st.column_config.NumberColumn("RSI14", format="%.2f", help=indicator_help("RSI14")),
+                        "Hist_Vol": st.column_config.NumberColumn("年化波動", format="%.2f%%", help=indicator_help("Hist_Vol")),
+                        "MA_Compression": st.column_config.NumberColumn("均線糾結度", format="%.2f%%", help=indicator_help("MA_Compression")),
+                        "Drawdown_52W": st.column_config.NumberColumn("距52週高點", format="%.2f%%", help=indicator_help("Drawdown_52W")),
+                        "Rebound_Space": st.column_config.NumberColumn("修復空間", format="%.2f%%", help=indicator_help("Rebound_Space")),
+                        "P_to_MA60": st.column_config.NumberColumn("距MA60", format="%.2f%%", help=indicator_help("P_to_MA60")),
+                        "P_to_MA120": st.column_config.NumberColumn("距MA120", format="%.2f%%", help=indicator_help("P_to_MA120")),
+                        "Volume_Ratio": st.column_config.NumberColumn("量比", format="%.2f", help=indicator_help("Volume_Ratio")),
                         "Reason": st.column_config.TextColumn("主要理由"),
                         "Risk": st.column_config.TextColumn("主要風險"),
                     }
@@ -3059,29 +3371,33 @@ if run_watchlist:
             if df.empty or len(df) < 20:
                 continue
             last = df.iloc[-1]
-            score = score_stock(df, info, mode)
+            default_score = score_stock(df, info, mode)
+            use_custom_weights = not weights_are_default(active_factor_weights)
+            score = score_stock(df, info, mode, factor_weights=active_factor_weights) if use_custom_weights else default_score
             dy = dividend_yield_pct(info, last["Close"])
-            rows.append(
-                {
-                    "代碼": resolved,
-                    "名稱": info.get("shortName") or info.get("longName") or display_code(resolved),
-                    "日期": df.index[-1].strftime("%Y-%m-%d"),
-                    "收盤": round(last["Close"], 2),
-                    "1日%": round(last["Return_1D"] * 100, 2),
-                    "20日%": round(last["Return_20D"] * 100, 2),
-                    "60日%": round(safe_float(last.get("Return_60D")) * 100, 2) if is_valid_number(last.get("Return_60D")) else np.nan,
-                    "BIAS20%": round(safe_float(last.get("BIAS20")), 2) if is_valid_number(last.get("BIAS20")) else np.nan,
-                    "RS20%": round(safe_float(last.get("RS_20D")) * 100, 2) if is_valid_number(last.get("RS_20D")) else np.nan,
-                    "RPS(0050)": round(safe_float(last.get("RPS_Proxy")), 1) if is_valid_number(last.get("RPS_Proxy")) else np.nan,
-                    "法人5日佔量%": round(safe_float(last.get("Institutional_Net_Ratio_5D")), 2) if is_valid_number(last.get("Institutional_Net_Ratio_5D")) else np.nan,
-                    "RSI": round(last["RSI14"], 1),
-                    "量比": round(last["Volume_Ratio"], 2),
-                    "PE": round(safe_float(info.get("trailingPE")), 2) if not pd.isna(safe_float(info.get("trailingPE"))) else np.nan,
-                    "殖利率%": round(dy, 2) if not pd.isna(dy) else np.nan,
-                    "分數": score["score_10"],
-                    "結論": score["label"],
-                }
-            )
+            row = {
+                "代碼": resolved,
+                "名稱": info.get("shortName") or info.get("longName") or display_code(resolved),
+                "日期": df.index[-1].strftime("%Y-%m-%d"),
+                "收盤": round(last["Close"], 2),
+                "1日%": round(last["Return_1D"] * 100, 2),
+                "20日%": round(last["Return_20D"] * 100, 2),
+                "60日%": round(safe_float(last.get("Return_60D")) * 100, 2) if is_valid_number(last.get("Return_60D")) else np.nan,
+                "BIAS20%": round(safe_float(last.get("BIAS20")), 2) if is_valid_number(last.get("BIAS20")) else np.nan,
+                "RS20%": round(safe_float(last.get("RS_20D")) * 100, 2) if is_valid_number(last.get("RS_20D")) else np.nan,
+                "RPS(0050)": round(safe_float(last.get("RPS_Proxy")), 1) if is_valid_number(last.get("RPS_Proxy")) else np.nan,
+                "法人5日佔量%": round(safe_float(last.get("Institutional_Net_Ratio_5D")), 2) if is_valid_number(last.get("Institutional_Net_Ratio_5D")) else np.nan,
+                "RSI": round(last["RSI14"], 1),
+                "量比": round(last["Volume_Ratio"], 2),
+                "PE": round(safe_float(info.get("trailingPE")), 2) if not pd.isna(safe_float(info.get("trailingPE"))) else np.nan,
+                "殖利率%": round(dy, 2) if not pd.isna(dy) else np.nan,
+                "分數": score["score_10"],
+                "結論": score["label"],
+            }
+            if use_custom_weights:
+                row["預設分數"] = default_score["score_10"]
+                row["加權原始分"] = score["raw_score"]
+            rows.append(row)
         except Exception:
             rows.append({"代碼": code, "名稱": "讀取失敗", "結論": "請確認代碼或資料源"})
         progress.progress((i + 1) / max(len(codes), 1))
