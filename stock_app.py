@@ -26,6 +26,22 @@ import urllib3
 # =========================
 APP_TITLE = "台股投資分析"
 DEFAULT_WATCHLIST = "台積電\n聯發科"
+MARKET_PROXY_TICKER = "0050"
+INSTITUTIONAL_COLUMNS = [
+    "Foreign_Net",
+    "Investment_Trust_Net",
+    "Dealer_Net",
+    "Institutional_Net",
+    "Foreign_Net_5D",
+    "Foreign_Net_20D",
+    "Investment_Trust_Net_5D",
+    "Investment_Trust_Net_20D",
+    "Institutional_Net_5D",
+    "Institutional_Net_20D",
+    "Institutional_Net_Ratio",
+    "Institutional_Net_Ratio_5D",
+    "Institutional_Net_Ratio_20D",
+]
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide")
 
@@ -89,6 +105,19 @@ def format_large_twd(value) -> str:
     if abs(value) >= 1e4:
         return f"{value / 1e4:.2f} 萬"
     return f"{value:.0f}"
+
+
+def format_shares(value) -> str:
+    value = safe_float(value)
+    if pd.isna(value):
+        return "—"
+    sign = "-" if value < 0 else ""
+    value = abs(value)
+    if value >= 1e8:
+        return f"{sign}{value / 1e8:.2f} 億股"
+    if value >= 1e4:
+        return f"{sign}{value / 1e4:.1f} 萬股"
+    return f"{sign}{value:,.0f} 股"
 
 
 def get_finmind_token() -> str:
@@ -438,6 +467,141 @@ def load_financials(ticker_symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def load_institutional_trading(ticker_symbol: str) -> pd.DataFrame:
+    """取得三大法人買賣超，整理成可直接併入日線的格式。"""
+    stock_id = normalize_tw_ticker(ticker_symbol)
+    if stock_id == "TAIEX":
+        return pd.DataFrame()
+    try:
+        end_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        raw = finmind_request(
+            "TaiwanStockInstitutionalInvestorsBuySell",
+            data_id=stock_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if raw.empty or not {"date", "buy", "sell"}.issubset(raw.columns):
+            return pd.DataFrame()
+
+        data = raw.copy()
+        data["date"] = pd.to_datetime(data["date"], errors="coerce")
+        data["buy"] = pd.to_numeric(data["buy"], errors="coerce").fillna(0)
+        data["sell"] = pd.to_numeric(data["sell"], errors="coerce").fillna(0)
+        data["net"] = data["buy"] - data["sell"]
+
+        source_col = "name" if "name" in data.columns else "type" if "type" in data.columns else None
+        if source_col is None:
+            data["institution_type"] = "法人"
+        else:
+            data["institution_type"] = data[source_col].apply(normalize_institution_name)
+
+        pivot = (
+            data.dropna(subset=["date"])
+            .pivot_table(index="date", columns="institution_type", values="net", aggfunc="sum")
+            .sort_index()
+        )
+        out = pd.DataFrame(index=pivot.index)
+        out["Foreign_Net"] = pivot.get("外資", 0)
+        out["Investment_Trust_Net"] = pivot.get("投信", 0)
+        out["Dealer_Net"] = pivot.get("自營商", 0)
+        out["Institutional_Net"] = out[["Foreign_Net", "Investment_Trust_Net", "Dealer_Net"]].sum(axis=1)
+        return out
+    except Exception:
+        return pd.DataFrame()
+
+
+def normalize_institution_name(value: str) -> str:
+    text = str(value).strip().lower()
+    if "foreign" in text or "外資" in text:
+        return "外資"
+    if "investment_trust" in text or "investment trust" in text or "投信" in text:
+        return "投信"
+    if "dealer" in text or "自營" in text:
+        return "自營商"
+    return str(value).strip() or "法人"
+
+
+def add_institutional_indicators(df: pd.DataFrame, institutional_df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if institutional_df is None or institutional_df.empty:
+        for col in INSTITUTIONAL_COLUMNS:
+            out[col] = np.nan
+        return out
+
+    inst = institutional_df.reindex(out.index).fillna(0)
+    for col in ["Foreign_Net", "Investment_Trust_Net", "Dealer_Net", "Institutional_Net"]:
+        series = inst[col] if col in inst.columns else pd.Series(0, index=out.index)
+        out[col] = pd.to_numeric(series, errors="coerce").fillna(0)
+
+    volume = out.get("Volume", pd.Series(index=out.index, dtype=float)).replace(0, np.nan)
+    volume_5d = out.get("Volume", pd.Series(index=out.index, dtype=float)).rolling(5).sum().replace(0, np.nan)
+    volume_20d = out.get("Volume", pd.Series(index=out.index, dtype=float)).rolling(20).sum().replace(0, np.nan)
+
+    for col in ["Foreign_Net", "Investment_Trust_Net", "Institutional_Net"]:
+        out[f"{col}_5D"] = out[col].rolling(5).sum()
+        out[f"{col}_20D"] = out[col].rolling(20).sum()
+
+    out["Institutional_Net_Ratio"] = out["Institutional_Net"] / volume * 100
+    out["Institutional_Net_Ratio_5D"] = out["Institutional_Net_5D"] / volume_5d * 100
+    out["Institutional_Net_Ratio_20D"] = out["Institutional_Net_20D"] / volume_20d * 100
+    return out
+
+
+def relative_strength_score(rs20: float, rs60: float, rs120: float) -> float:
+    score = 50.0
+    if is_valid_number(rs20):
+        score += np.clip(rs20 * 220, -25, 25)
+    if is_valid_number(rs60):
+        score += np.clip(rs60 * 140, -25, 25)
+    if is_valid_number(rs120):
+        score += np.clip(rs120 * 90, -20, 20)
+    return round(float(np.clip(score, 0, 100)), 1)
+
+
+def add_relative_strength_indicators(df: pd.DataFrame, benchmark_ticker: str = MARKET_PROXY_TICKER) -> pd.DataFrame:
+    """加入相對 0050 的強弱欄位，作為單股版 RPS proxy。"""
+    out = df.copy()
+    cols = [
+        "Benchmark_Return_20D",
+        "Benchmark_Return_60D",
+        "Benchmark_Return_120D",
+        "RS_20D",
+        "RS_60D",
+        "RS_120D",
+        "RS_Line",
+        "RS_Line_MA20",
+        "RS_Line_Slope_20D",
+        "RPS_Proxy",
+    ]
+    try:
+        benchmark, _ = load_price_data(benchmark_ticker)
+        bench_close = benchmark["Close"].rename("Benchmark_Close")
+        aligned = out.join(bench_close, how="left")
+        aligned["Benchmark_Close"] = aligned["Benchmark_Close"].ffill()
+
+        for n in [20, 60, 120]:
+            stock_ret = aligned["Close"].pct_change(n)
+            bench_ret = aligned["Benchmark_Close"].pct_change(n)
+            out[f"Benchmark_Return_{n}D"] = bench_ret
+            out[f"RS_{n}D"] = (1 + stock_ret) / (1 + bench_ret) - 1
+
+        first_stock = aligned["Close"].dropna().iloc[0]
+        first_bench = aligned["Benchmark_Close"].dropna().iloc[0]
+        out["RS_Line"] = (aligned["Close"] / first_stock) / (aligned["Benchmark_Close"] / first_bench) * 100
+        out["RS_Line_MA20"] = out["RS_Line"].rolling(20).mean()
+        out["RS_Line_Slope_20D"] = out["RS_Line"].pct_change(20)
+        out["RPS_Proxy"] = [
+            relative_strength_score(a, b, c)
+            for a, b, c in zip(out["RS_20D"], out["RS_60D"], out["RS_120D"])
+        ]
+    except Exception:
+        for col in cols:
+            out[col] = np.nan
+    return out
+
+
 def normalize_financial_type(x: str) -> Optional[str]:
     """把 FinMind 財報 type 欄位盡量對應到 App 使用的四個欄位。"""
     t = str(x).lower()
@@ -465,8 +629,12 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["Return_1D"] = close.pct_change()
     out["Return_5D"] = close.pct_change(5)
     out["Return_20D"] = close.pct_change(20)
+    out["Return_60D"] = close.pct_change(60)
+    out["Return_120D"] = close.pct_change(120)
     for n in [5, 10, 20, 60, 120, 240]:
         out[f"MA{n}"] = close.rolling(n).mean()
+    for n in [5, 10, 20, 60, 120]:
+        out[f"BIAS{n}"] = (close / out[f"MA{n}"].replace(0, np.nan) - 1) * 100
     out["EMA10"] = close.ewm(span=10, adjust=False).mean()
     out["EMA20"] = close.ewm(span=20, adjust=False).mean()
     out["EMA50"] = close.ewm(span=50, adjust=False).mean()
@@ -508,262 +676,230 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["Volume_Ratio"] = volume / out["Volume_MA20"].replace(0, np.nan)
     direction = np.sign(close.diff()).fillna(0)
     out["OBV"] = (direction * volume).cumsum()
+    out["OBV_MA20"] = out["OBV"].rolling(20).mean()
+    out["OBV_Slope_20D"] = out["OBV"] - out["OBV"].shift(20)
 
     # 52 週位置與回撤
     out["High_52W"] = close.rolling(240).max()
     out["Low_52W"] = close.rolling(240).min()
     out["Drawdown"] = close / close.cummax() - 1
+    out["Position_52W"] = (close - out["Low_52W"]) / (out["High_52W"] - out["Low_52W"]).replace(0, np.nan) * 100
 
     return out
 
 
 def score_stock(df: pd.DataFrame, info: Dict, mode: str) -> Dict:
-    """統一 -10~+10 評分架構。"""
+    """統一 -15~+15 評分架構，納入乖離、相對強弱與法人籌碼。"""
 
     last = df.iloc[-1]
     prev = df.iloc[-2]
-
-    score = 0
-
+    score = 0.0
     reasons: List[str] = []
     warnings: List[str] = []
+    factor_scores = {
+        "趨勢結構": 0.0,
+        "動能量價": 0.0,
+        "乖離/過熱": 0.0,
+        "相對強弱": 0.0,
+        "法人籌碼": 0.0,
+        "基本面": 0.0,
+        "風險": 0.0,
+    }
+
+    def add(delta: float, factor: str, message: str = "", warning: bool = False) -> None:
+        nonlocal score
+        score += delta
+        factor_scores[factor] = factor_scores.get(factor, 0.0) + delta
+        if message:
+            (warnings if warning else reasons).append(message)
 
     close = safe_float(last["Close"])
     rsi = safe_float(last["RSI14"])
-
     pe = safe_float(info.get("trailingPE"))
     eps = safe_float(info.get("trailingEps"))
-
-    dividend_yield = dividend_yield_pct(info)
+    dividend_yield = dividend_yield_pct(info, close)
     beta = safe_float(info.get("beta"))
 
-    # =========================================================
-    # 短線／波段
-    # =========================================================
+    bias20 = safe_float(last.get("BIAS20"))
+    bias60 = safe_float(last.get("BIAS60"))
+    rs20 = safe_float(last.get("RS_20D"))
+    rs60 = safe_float(last.get("RS_60D"))
+    rs120 = safe_float(last.get("RS_120D"))
+    rps_proxy = safe_float(last.get("RPS_Proxy"))
+    inst_5d = safe_float(last.get("Institutional_Net_5D"))
+    inst_20d = safe_float(last.get("Institutional_Net_20D"))
+    inst_ratio_5d = safe_float(last.get("Institutional_Net_Ratio_5D"))
+    foreign_5d = safe_float(last.get("Foreign_Net_5D"))
+    trust_5d = safe_float(last.get("Investment_Trust_Net_5D"))
+
     if "短線" in mode:
-
-        # ===== 趨勢結構（±3）
-        if (
-            is_valid_number(last.get("MA5"))
-            and is_valid_number(last.get("MA20"))
-        ):
-
+        if is_valid_number(last.get("MA5")) and is_valid_number(last.get("MA20")):
             if close > last["MA5"] > last["MA20"]:
-                score += 3
-                reasons.append("短均線呈多頭排列，短線趨勢強勢。")
-
+                add(2.5, "趨勢結構", "短均線呈多頭排列，短線趨勢偏強。")
             elif close < last["MA5"] < last["MA20"]:
-                score -= 3
-                warnings.append("短均線呈空頭排列，短線結構偏弱。")
+                add(-2.5, "趨勢結構", "短均線呈空頭排列，短線結構偏弱。", True)
 
-        # ===== MACD 動能（±2）
-        if (
-            is_valid_number(last.get("MACD_HIST"))
-            and is_valid_number(prev.get("MACD_HIST"))
-        ):
-
-            if (
-                last["MACD_HIST"] > 0
-                and last["MACD_HIST"] > prev["MACD_HIST"]
-            ):
-                score += 2
-                reasons.append("MACD 動能持續擴大。")
-
+        if is_valid_number(last.get("MACD_HIST")) and is_valid_number(prev.get("MACD_HIST")):
+            if last["MACD_HIST"] > 0 and last["MACD_HIST"] > prev["MACD_HIST"]:
+                add(1.5, "動能量價", "MACD 動能持續擴大。")
             elif last["MACD_HIST"] < 0:
-                score -= 2
-                warnings.append("MACD 動能仍偏弱。")
+                add(-1.5, "動能量價", "MACD 動能仍偏弱。", True)
 
-        # ===== RSI（±2）
         if 50 <= rsi <= 68:
-            score += 2
-            reasons.append("RSI 位於強勢區且未過熱。")
-
-        elif 68 < rsi <= 80:
-            score += 1
-            warnings.append("RSI 偏高，需留意短線過熱。")
-
-        elif rsi > 80:
-            score -= 2
-            warnings.append("RSI 過熱，容易拉回。")
-
+            add(1.5, "動能量價", "RSI 位於強勢區且尚未過熱。")
+        elif 68 < rsi <= 78:
+            add(0.5, "動能量價", "RSI 偏高，動能仍強但需留意追價。", True)
+        elif rsi > 78:
+            add(-1.5, "乖離/過熱", "RSI 明顯過熱，短線拉回風險升高。", True)
         elif rsi < 30:
-            score -= 1
-            warnings.append("RSI 過低，代表短線賣壓仍重。")
+            add(-1.0, "動能量價", "RSI 過低，代表短線賣壓仍重。", True)
 
-        # ===== 量能（±1）
-        if (
-            is_valid_number(last.get("Volume_Ratio"))
-            and last["Volume_Ratio"] > 1.5
-            and close > prev["Close"]
-        ):
-            score += 1
-            reasons.append("量能放大且收漲，市場買盤積極。")
+        if is_valid_number(last.get("Volume_Ratio")) and last["Volume_Ratio"] > 1.5 and close > prev["Close"]:
+            add(1.0, "動能量價", "量能放大且收漲，買盤積極。")
+        elif is_valid_number(last.get("Volume_Ratio")) and last["Volume_Ratio"] > 1.8 and close < prev["Close"]:
+            add(-1.0, "動能量價", "放量下跌，短線賣壓偏重。", True)
 
-        elif (
-            is_valid_number(last.get("Volume_Ratio"))
-            and last["Volume_Ratio"] > 1.8
-            and close < prev["Close"]
-        ):
-            score -= 1
-            warnings.append("放量下跌，短線賣壓偏重。")
-
-        # ===== 20日動能（±1）
         if is_valid_number(last.get("Return_20D")):
-
             if last["Return_20D"] > 0.15:
-                score += 1
-                reasons.append("近 20 日動能強勢。")
-
+                add(0.8, "動能量價", "近 20 日動能強勢。")
             elif last["Return_20D"] < -0.15:
-                score -= 1
-                warnings.append("近 20 日動能偏弱。")
+                add(-0.8, "動能量價", "近 20 日動能偏弱。", True)
 
-        # ===== 布林位置（±1）
-        if (
-            is_valid_number(last.get("BB_UPPER"))
-            and is_valid_number(last.get("BB_LOWER"))
-        ):
-
+        if is_valid_number(last.get("BB_UPPER")) and is_valid_number(last.get("BB_LOWER")):
             if close > last["BB_UPPER"]:
-                score -= 1
-                warnings.append("股價偏離布林上軌，追高風險較高。")
-
+                add(-0.8, "乖離/過熱", "股價突破布林上軌，短線追高風險增加。", True)
             elif close < last["BB_LOWER"]:
-                score += 1
-                reasons.append("股價接近布林下軌，可能有反彈機會。")
+                add(0.5, "乖離/過熱", "股價接近布林下軌，可能有反彈機會。")
 
-    # =========================================================
-    # 長線／存股
-    # =========================================================
+        if is_valid_number(bias20):
+            if 0 <= bias20 <= 8:
+                add(1.0, "乖離/過熱", f"BIAS20 約 {bias20:.1f}%，股價強勢但尚未明顯過熱。")
+            elif 8 < bias20 <= 15:
+                add(-0.3, "乖離/過熱", f"BIAS20 約 {bias20:.1f}%，已偏離月線，追價需保守。", True)
+            elif bias20 > 15:
+                add(-1.8, "乖離/過熱", f"BIAS20 約 {bias20:.1f}%，短線乖離過大。", True)
+            elif bias20 < -8:
+                add(-0.8, "乖離/過熱", f"BIAS20 約 {bias20:.1f}%，仍弱於月線。", True)
+
+        if is_valid_number(rs20) or is_valid_number(rs60):
+            if (is_valid_number(rs20) and rs20 > 0.03) or (is_valid_number(rps_proxy) and rps_proxy >= 65):
+                add(1.2, "相對強弱", "近月表現優於 0050，相對強勢明顯。")
+            elif is_valid_number(rs20) and rs20 < -0.04:
+                add(-1.2, "相對強弱", "近月明顯落後 0050，資金相對不青睞。", True)
+            if is_valid_number(rs60) and rs60 > 0:
+                add(0.8, "相對強弱", "近 60 日仍優於 0050，波段相對強。")
+            elif is_valid_number(rs60) and rs60 < -0.06:
+                add(-0.8, "相對強弱", "近 60 日弱於 0050，波段強度不足。", True)
+
+        if is_valid_number(inst_ratio_5d):
+            if inst_ratio_5d >= 1.0:
+                add(1.0, "法人籌碼", f"近 5 日法人買超約占成交量 {inst_ratio_5d:.1f}%，籌碼偏多。")
+            elif inst_ratio_5d <= -1.0:
+                add(-1.0, "法人籌碼", f"近 5 日法人賣超約占成交量 {abs(inst_ratio_5d):.1f}%，籌碼偏空。", True)
+        if is_valid_number(foreign_5d) and is_valid_number(trust_5d):
+            if foreign_5d > 0 and trust_5d > 0:
+                add(0.8, "法人籌碼", "外資與投信近 5 日同步偏買。")
+            elif foreign_5d < 0 and trust_5d < 0:
+                add(-0.8, "法人籌碼", "外資與投信近 5 日同步偏賣。", True)
+
     else:
-
-        # ===== 中長期趨勢（±3）
-        if (
-            is_valid_number(last.get("MA60"))
-            and is_valid_number(last.get("MA120"))
-        ):
-
+        if is_valid_number(last.get("MA60")) and is_valid_number(last.get("MA120")):
             if close > last["MA60"] > last["MA120"]:
-                score += 3
-                reasons.append("季線與半年線呈多頭排列。")
-
+                add(2.5, "趨勢結構", "季線與半年線呈多頭排列。")
             elif close < last["MA60"] < last["MA120"]:
-                score -= 3
-                warnings.append("中長期均線偏空。")
+                add(-2.5, "趨勢結構", "中長期均線偏空。", True)
 
-        # ===== 年線結構（±2）
         if is_valid_number(last.get("MA240")):
-
             if close > last["MA240"]:
-                score += 2
-                reasons.append("股價位於年線之上。")
-
+                add(1.5, "趨勢結構", "股價位於年線之上。")
             else:
-                score -= 2
-                warnings.append("股價仍低於年線。")
+                add(-1.5, "趨勢結構", "股價仍低於年線。", True)
 
-        # ===== PE 估值（±2）
+        if is_valid_number(bias60):
+            if -8 <= bias60 <= 12:
+                add(1.0, "乖離/過熱", f"BIAS60 約 {bias60:.1f}%，中期乖離尚屬可控。")
+            elif bias60 > 25:
+                add(-1.2, "乖離/過熱", f"BIAS60 約 {bias60:.1f}%，中長線追價風險偏高。", True)
+            elif bias60 < -18:
+                add(-0.8, "乖離/過熱", f"BIAS60 約 {bias60:.1f}%，仍明顯低於季線。", True)
+
+        if is_valid_number(rs60) or is_valid_number(rs120):
+            if is_valid_number(rs60) and rs60 > 0.03:
+                add(1.0, "相對強弱", "近 60 日優於 0050，波段資金相對集中。")
+            elif is_valid_number(rs60) and rs60 < -0.06:
+                add(-1.0, "相對強弱", "近 60 日弱於 0050，中期強度不足。", True)
+            if is_valid_number(rs120) and rs120 > 0:
+                add(0.8, "相對強弱", "近 120 日仍優於 0050，中期相對強。")
+            elif is_valid_number(rs120) and rs120 < -0.08:
+                add(-0.8, "相對強弱", "近 120 日落後 0050，長波段吸引力較弱。", True)
+
+        if is_valid_number(inst_20d):
+            if inst_20d > 0:
+                add(0.8, "法人籌碼", "近 20 日法人累計買超，籌碼有支撐。")
+            elif inst_20d < 0:
+                add(-0.8, "法人籌碼", "近 20 日法人累計賣超，籌碼需觀察。", True)
+
         if not pd.isna(pe):
-
             if 0 < pe <= 15:
-                score += 2
-                reasons.append("本益比偏低，估值相對合理。")
-
+                add(1.5, "基本面", "本益比偏低，估值相對合理。")
             elif 15 < pe <= 25:
-                score += 1
-                reasons.append("本益比尚屬合理區間。")
-
+                add(0.8, "基本面", "本益比尚屬合理區間。")
             elif pe > 40:
-                score -= 2
-                warnings.append("本益比偏高，估值壓力較大。")
+                add(-1.5, "基本面", "本益比偏高，估值壓力較大。", True)
 
-        # ===== EPS（±1）
         if not pd.isna(eps):
-
             if eps > 5:
-                score += 1
-                reasons.append("EPS 表現良好。")
-
+                add(0.8, "基本面", "EPS 表現良好。")
             elif eps <= 0:
-                score -= 1
-                warnings.append("EPS 非正值。")
+                add(-0.8, "基本面", "EPS 非正值。", True)
 
-        # ===== 殖利率（±1）
         if not pd.isna(dividend_yield):
-
             if dividend_yield >= 5:
-                score += 1
-                reasons.append("殖利率具吸引力。")
-
+                add(0.8, "基本面", "殖利率具吸引力。")
             elif dividend_yield < 1:
-                score -= 1
-                warnings.append("殖利率偏低。")
+                add(-0.5, "基本面", "殖利率偏低。", True)
 
-        # ===== Beta（±1）
         if not pd.isna(beta):
-
             if beta <= 1:
-                score += 1
-                reasons.append("Beta 較低，波動相對穩定。")
-
+                add(0.7, "風險", "Beta 較低，波動相對穩定。")
             elif beta > 1.6:
-                score -= 1
-                warnings.append("Beta 偏高，波動風險較大。")
+                add(-0.7, "風險", "Beta 偏高，波動風險較大。", True)
 
-    # =========================================================
-    # 額外風險提醒（不計分）
-    # =========================================================
-
-    if (
-        is_valid_number(last.get("Drawdown"))
-        and last["Drawdown"] < -0.35
-    ):
+    if is_valid_number(last.get("Drawdown")) and last["Drawdown"] < -0.35:
         warnings.append("距歷史高點回撤超過 35%。")
+    if is_valid_number(rps_proxy) and rps_proxy < 35:
+        warnings.append("相對 0050 強弱分數偏低，選股排序應保守。")
+    if is_valid_number(inst_5d) and is_valid_number(inst_20d) and inst_5d < 0 and inst_20d < 0:
+        warnings.append("法人近 5 日與 20 日同為賣超，短期籌碼壓力尚未解除。")
 
-    # =========================================================
-    # -10~10 → 0~10
-    # =========================================================
-
-    score = max(-10, min(10, score))
-
-    score_10 = (score + 10) / 20 * 10
-    score_10 = round(score_10, 1)
-
-    # =========================================================
-    # 評語
-    # =========================================================
+    raw_score = score
+    score_min, score_max = -15, 15
+    score = max(score_min, min(score_max, score))
+    score_10 = round((score - score_min) / (score_max - score_min) * 10, 1)
 
     if score_10 >= 8.5:
-        label = "條件優良／可優先觀察"
-        level = "success"
-
+        label, level = "條件優良／可優先觀察", "success"
     elif score_10 >= 7:
-        label = "偏多格局／可列入候選"
-        level = "info"
-
+        label, level = "偏多格局／可列入候選", "info"
     elif score_10 >= 5.5:
-        label = "中性偏多／等待確認"
-        level = "info"
-
+        label, level = "中性偏多／等待確認", "info"
     elif score_10 >= 4:
-        label = "中性偏弱／保守觀望"
-        level = "warning"
-
+        label, level = "中性偏弱／保守觀望", "warning"
     elif score_10 >= 2.5:
-        label = "偏弱格局／不宜積極"
-        level = "warning"
-
+        label, level = "偏弱格局／不宜積極", "warning"
     else:
-        label = "高風險／暫不建議介入"
-        level = "error"
+        label, level = "高風險／暫不建議介入", "error"
 
     return {
-        "score": score,
+        "score": round(score, 2),
+        "raw_score": round(raw_score, 2),
         "score_10": score_10,
+        "raw_range": [score_min, score_max],
         "label": label,
         "level": level,
-        "reasons": reasons[:6],
-        "warnings": warnings[:6],
+        "reasons": reasons[:8],
+        "warnings": warnings[:8],
+        "factor_scores": {key: round(value, 2) for key, value in factor_scores.items()},
     }
 
 def compute_backtest_stats(bt: pd.DataFrame) -> Dict:
@@ -1477,6 +1613,63 @@ def make_backtest_chart(bt_df: pd.DataFrame):
     )
 
 
+def make_institutional_chart(df: pd.DataFrame, rows: int = 120):
+    plot = df.tail(rows).copy().reset_index()
+    date_col = plot.columns[0]
+    plot = plot.rename(columns={date_col: "日期"})
+    if "Institutional_Net" not in plot.columns or plot["Institutional_Net"].dropna().empty:
+        return None
+
+    colors = np.where(plot["Institutional_Net"] >= 0, "#D32F2F", "#00A65A")
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        row_heights=[0.55, 0.45],
+    )
+    fig.add_trace(
+        go.Bar(
+            x=plot["日期"],
+            y=plot["Institutional_Net"],
+            name="法人買賣超",
+            marker_color=colors,
+            opacity=0.75,
+            hovertemplate="法人買賣超 %{y:,.0f} 股<extra></extra>",
+        ),
+        row=1,
+        col=1,
+    )
+    for col, name, color in [
+        ("Foreign_Net_5D", "外資5日", "#2563EB"),
+        ("Investment_Trust_Net_5D", "投信5日", "#9333EA"),
+        ("Institutional_Net_20D", "法人20日", "#F59E0B"),
+    ]:
+        if col in plot.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=plot["日期"],
+                    y=plot[col],
+                    mode="lines",
+                    name=name,
+                    line=dict(color=color, width=2),
+                    hovertemplate=f"{name} %{{y:,.0f}} 股<extra></extra>",
+                ),
+                row=2,
+                col=1,
+            )
+    fig.update_layout(
+        height=420,
+        hovermode="x",
+        margin=dict(l=10, r=10, t=20, b=10),
+        legend=dict(orientation="h", y=1.08),
+        template="plotly_white",
+    )
+    fig.update_yaxes(title_text="單日", row=1, col=1)
+    fig.update_yaxes(title_text="累計", row=2, col=1)
+    return fig
+
+
 def build_financial_table(stmt: pd.DataFrame, ticker_symbol: Optional[str] = None) -> pd.DataFrame:
     """整理 FinMind 近 8 季財報。若資料表欄位不符，則回傳空表避免 App 中斷。"""
     if stmt is None or stmt.empty:
@@ -1697,22 +1890,23 @@ def mode_difference_table() -> pd.DataFrame:
         "面向": ["核心目的", "主要看什麼", "加分條件", "扣分條件", "風控邏輯"],
         "短線／波段": [
             "抓 1–8 週價差與動能延續",
-            "MA5、MA20、MACD、RSI、量比、20日強弱",
-            "短均線向上、MACD擴大、放量上漲、RSI偏強未過熱",
-            "跌破短均線、MACD轉弱、放量下跌、RSI過熱",
+            "MA5、MA20、MACD、RSI、量比、BIAS、相對強弱、法人籌碼",
+            "短均線向上、MACD擴大、放量上漲、RSI偏強未過熱、跑贏0050、法人偏買",
+            "跌破短均線、MACD轉弱、放量下跌、乖離過熱、弱於0050、法人偏賣",
             "停損較嚴格，重視 ATR 與隔日跳空風險",
         ],
         "長線／存股": [
             "看半年以上趨勢、估值與現金流",
-            "MA60、MA120、MA240、PE、EPS、殖利率、Beta",
-            "站上季線/年線、PE合理、EPS為正、殖利率佳",
-            "跌破季線/年線、估值過高、EPS弱、Beta過高",
+            "MA60、MA120、MA240、BIAS、相對強弱、法人20日、PE、EPS、殖利率、Beta",
+            "站上季線/年線、估值合理、乖離可控、法人偏買、中期跑贏0050",
+            "跌破季線/年線、估值過高、乖離過熱或弱勢、法人賣超、Beta過高",
             "可分批布局，但仍需限制單筆最大損失",
         ],
     })
 
 # ===== 更新公告文字 =====
 CHANGELOG_TEXT = """
+2026.05.27 強化評分：新增乖離率、相對0050強弱/RPS proxy、三大法人籌碼，並改為 -15～+15 分項評分
 2026.05.16 修改股票搜尋，輸入名稱或代碼都可以
 2026.05.15 新增 AI 潛力股選股
 2026.05.15 資料區間改為自訂開始日期～結束日期，回測新增自訂參數模式與買賣點標注
@@ -1825,8 +2019,6 @@ with st.sidebar:
     
     st.caption(f"分析區間：{start_date} ～ {end_date}")
     mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=False)
-    #capital = st.number_input("帳戶資金（元）", min_value=1, value=100000, step=10000)
-    #risk_pct = st.number_input("單筆最大風險 %", min_value=0.01, max_value=100.0, value=10.0, step=1.0, format="%.2f", help="代表這一筆交易最多願意虧掉帳戶資金的百分比，例如 1% 表示 10 萬帳戶最多虧 1000 元。")
     analyze = st.button("更新並分析", type="primary", use_container_width=True)
     st.divider()
     watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
@@ -1862,6 +2054,9 @@ if analyze:
             
             # 3. 計算指標
             full_df = calculate_indicators(raw_df)
+            full_df = add_relative_strength_indicators(full_df)
+            institutional_raw = load_institutional_trading(resolved_ticker)
+            full_df = add_institutional_indicators(full_df, institutional_raw)
             
             # 4. 使用完整計算後的資料
             df = full_df.dropna(
@@ -1888,7 +2083,7 @@ if analyze:
         else:
             st.caption(f"最新交易日：{latest_date}")
 
-        score = score_stock(df, info, mode)
+        score = score_stock(df, {**fast_info, **info}, mode)
         score_text = (
             f"綜合評分：{score['score_10']}/10"
             f"｜{score['label']}"
@@ -1903,7 +2098,7 @@ if analyze:
         else:
             st.info(score_text)
             
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
         price_change = safe_float(last["Close"] - prev["Close"])
         price_change_pct = safe_float(last["Return_1D"] * 100)
         if price_change >= 0:
@@ -1920,15 +2115,14 @@ if analyze:
         c2.metric("RSI14", format_number(last["RSI14"], 1))
         c3.metric("MACD柱", format_number(last["MACD_HIST"], 2))
         c4.metric("20日量比", format_number(last["Volume_Ratio"], 2))
-        c5.metric("20日年化波動", format_number(last["Volatility_20D"] * 100, 1, "%"))
-        c6.metric("目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
+        c5.metric("BIAS20", format_number(last.get("BIAS20"), 1, "%"))
+        c6.metric("RPS(0050)", format_number(last.get("RPS_Proxy"), 1))
+        c7.metric("法人5日佔量", format_number(last.get("Institutional_Net_Ratio_5D"), 1, "%"))
+        c8.metric("目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
 
-        # tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
-        #     ["總覽", "技術圖表", "基本面", "風險控管", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
-        #     )      
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
-            ["總覽", "技術圖表", "基本面", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
-            )      
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
+            ["總覽", "技術圖表", "基本面", "籌碼強弱", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
+            )
         with tab1:
             left, right = st.columns([1, 1])
             with left:
@@ -1945,6 +2139,13 @@ if analyze:
                         st.write(f"⚠️ {item}")
                 else:
                     st.write("目前沒有明顯技術警訊，但仍需控管部位。")
+
+            st.markdown("#### 分項分數")
+            factor_df = pd.DataFrame(
+                [{"因子": key, "原始加減分": value} for key, value in score.get("factor_scores", {}).items()]
+            )
+            st.dataframe(factor_df, hide_index=True, use_container_width=True)
+            st.caption("新版分數已納入乖離/過熱、相對 0050 強弱，以及三大法人籌碼。原始分數區間為 -15～+15，再轉換成 0～10 分。")
 
             st.markdown("#### 關鍵價位")
             levels = pd.DataFrame(
@@ -1966,7 +2167,14 @@ if analyze:
         with tab2:
             st.plotly_chart(make_price_chart(df, close_overlay=full_df["Close"]), use_container_width=True)
             st.markdown("#### 指標明細")
-            indicator_cols = ["Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240", "BB_UPPER", "BB_MID", "BB_LOWER", "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14", "Volume_Ratio", "Return_5D", "Return_20D"]
+            indicator_cols = [
+                "Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240",
+                "BIAS5", "BIAS20", "BIAS60", "BB_UPPER", "BB_MID", "BB_LOWER",
+                "RSI14", "MACD_DIF", "MACD_SIGNAL", "MACD_HIST", "ATR14",
+                "Volume_Ratio", "Return_5D", "Return_20D", "RS_20D", "RS_60D",
+                "RPS_Proxy", "Institutional_Net_Ratio_5D", "Institutional_Net_20D",
+            ]
+            indicator_cols = [col for col in indicator_cols if col in df.columns]
             st.dataframe(df[indicator_cols].tail(30).iloc[::-1], use_container_width=True)
 
         with tab3:
@@ -2040,6 +2248,56 @@ if analyze:
         #         st.checkbox(x, value=False)
 
         with tab4:
+            st.markdown("#### 乖離率 / 相對強弱 / 法人籌碼")
+            st.info("這一頁聚焦新版評分新增的三個選股確認因子：是否過熱、是否打贏 0050、法人籌碼是否同向。")
+
+            k1, k2, k3, k4, k5, k6 = st.columns(6)
+            k1.metric("BIAS20", format_number(last.get("BIAS20"), 2, "%"))
+            k2.metric("BIAS60", format_number(last.get("BIAS60"), 2, "%"))
+            k3.metric("RS 20D", format_number(last.get("RS_20D") * 100 if is_valid_number(last.get("RS_20D")) else np.nan, 2, "%"))
+            k4.metric("RS 60D", format_number(last.get("RS_60D") * 100 if is_valid_number(last.get("RS_60D")) else np.nan, 2, "%"))
+            k5.metric("RPS(0050)", format_number(last.get("RPS_Proxy"), 1))
+            k6.metric("法人5日佔量", format_number(last.get("Institutional_Net_Ratio_5D"), 2, "%"))
+
+            st.markdown("##### 相對強弱")
+            rs_table = pd.DataFrame({
+                "項目": ["相對0050 20日", "相對0050 60日", "相對0050 120日", "RPS proxy"],
+                "數值": [
+                    safe_float(last.get("RS_20D")) * 100,
+                    safe_float(last.get("RS_60D")) * 100,
+                    safe_float(last.get("RS_120D")) * 100,
+                    safe_float(last.get("RPS_Proxy")),
+                ],
+                "解讀": [
+                    "正值代表近 20 日跑贏 0050",
+                    "正值代表近 60 日跑贏 0050",
+                    "正值代表近 120 日跑贏 0050",
+                    "以相對 0050 的 20/60/120 日強弱推估，非全市場排名",
+                ],
+            })
+            st.dataframe(rs_table, hide_index=True, use_container_width=True)
+
+            st.markdown("##### 法人籌碼")
+            chip_table = pd.DataFrame({
+                "項目": ["外資5日", "投信5日", "自營商單日", "法人5日", "法人20日", "法人5日佔成交量"],
+                "數值": [
+                    format_shares(last.get("Foreign_Net_5D")),
+                    format_shares(last.get("Investment_Trust_Net_5D")),
+                    format_shares(last.get("Dealer_Net")),
+                    format_shares(last.get("Institutional_Net_5D")),
+                    format_shares(last.get("Institutional_Net_20D")),
+                    format_number(last.get("Institutional_Net_Ratio_5D"), 2, "%"),
+                ],
+            })
+            st.dataframe(chip_table, hide_index=True, use_container_width=True)
+
+            chip_chart = make_institutional_chart(full_df)
+            if chip_chart is None:
+                st.info("目前無法取得法人買賣超資料；若未設定 FinMind token，資料額度或可用性可能較受限。")
+            else:
+                st.plotly_chart(chip_chart, use_container_width=True)
+
+        with tab5:
             st.markdown("#### 多策略回測中心")
             st.info("檢查：不同交易規則在過去同一段資料期間內表現如何。")
 
@@ -2409,7 +2667,7 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
             st.markdown("## 短線與長線模式差異")
 
             st.info(
-                "目前評分系統統一採用原始分數 -10～+10，"
+                "目前評分系統統一採用原始分數 -15～+15，"
                 "再轉換為 0～10 分。分數越高，代表越符合該操作模式的條件。"
             )
 
@@ -2418,17 +2676,17 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                 "短線／波段": [
                     "判斷短期趨勢與動能是否有延續機會",
                     "數天～數週",
-                    "MA5、MA20、MACD、RSI、量比、20日動能、布林位置",
-                    "短均線多頭排列、MACD轉強、RSI強勢未過熱、放量上漲",
-                    "短均線空頭排列、MACD轉弱、RSI過熱、放量下跌",
+                    "MA5、MA20、MACD、RSI、量比、20日動能、BIAS、相對0050強弱、法人5日籌碼",
+                    "短均線多頭、MACD轉強、RSI強勢未過熱、放量上漲、跑贏0050、法人偏買",
+                    "短均線空頭、MACD轉弱、RSI過熱或乖離過大、弱於0050、法人偏賣",
                     "想抓波段價差、能接受較頻繁操作的人",
                 ],
                 "長線／存股": [
                     "判斷中長期結構、估值與持有風險是否合理",
                     "數月～數年",
-                    "MA60、MA120、MA240、PE、EPS、殖利率、Beta",
-                    "中長期均線多頭、站上年線、估值合理、獲利穩定、波動較低",
-                    "跌破中長期均線、低於年線、估值過高、EPS不佳、Beta偏高",
+                    "MA60、MA120、MA240、BIAS60、相對0050強弱、法人20日、PE、EPS、殖利率、Beta",
+                    "中長期均線多頭、站上年線、估值合理、乖離可控、法人累計買超",
+                    "跌破中長期均線、低於年線、估值過高、弱於0050、法人累計賣超",
                     "想長期持有、重視穩定性與風險控管的人",
                 ],
             })
@@ -2440,14 +2698,14 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
 
             score_rule_df = pd.DataFrame({
                 "項目": ["原始最低分", "原始中性分", "原始最高分", "轉換方式"],
-                "短線／波段": ["-10", "0", "+10", "(-10～+10) 轉換為 0～10 分"],
-                "長線／存股": ["-10", "0", "+10", "(-10～+10) 轉換為 0～10 分"],
+                "短線／波段": ["-15", "0", "+15", "(-15～+15) 轉換為 0～10 分"],
+                "長線／存股": ["-15", "0", "+15", "(-15～+15) 轉換為 0～10 分"],
             })
 
             st.dataframe(score_rule_df, hide_index=True, use_container_width=True)
 
             st.caption(
-                "轉換公式：顯示分數 = (原始分數 + 10) / 20 × 10。"
+                "轉換公式：顯示分數 = (原始分數 + 15) / 30 × 10。"
                 "因此原始分數 0 會對應到 5 分，代表中性。"
             )
 
@@ -2457,21 +2715,19 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
             short_score_df = pd.DataFrame({
                 "評分面向": [
                     "趨勢結構",
-                    "MACD 動能",
-                    "RSI 位置",
-                    "量能表現",
-                    "20日動能",
-                    "布林位置",
+                    "動能量價",
+                    "乖離/過熱",
+                    "相對強弱",
+                    "法人籌碼",
                 ],
-                "最高加分": ["+3", "+2", "+2", "+1", "+1", "+1"],
-                "最低扣分": ["-3", "-2", "-2", "-1", "-1", "-1"],
+                "最高加分": ["+2.5", "+4.8", "+1.5", "+2.0", "+1.8"],
+                "最低扣分": ["-2.5", "-4.8", "-2.6", "-2.0", "-1.8"],
                 "判斷重點": [
                     "股價、MA5、MA20 是否形成短線多頭或空頭排列",
-                    "MACD 柱狀體是否轉正且擴大",
-                    "RSI 是否位於強勢但未過熱區間",
-                    "是否放量上漲或放量下跌",
-                    "近 20 日漲跌幅是否明顯強勢或弱勢",
-                    "是否過度偏離布林上軌或接近下軌",
+                    "MACD、RSI、量比與 20 日報酬是否同步支持短線動能",
+                    "BIAS20、布林位置與 RSI 是否顯示過熱或合理強勢",
+                    "近 20/60 日是否跑贏 0050，RPS proxy 是否偏強",
+                    "近 5 日法人買賣超與外資/投信是否同向",
                 ],
             })
 
@@ -2484,16 +2740,22 @@ Sharpe × 2 + 年化報酬％ / 20 + 最大回撤％ / 20
                 "評分面向": [
                     "中長期趨勢",
                     "年線結構",
+                    "乖離/過熱",
+                    "相對強弱",
+                    "法人籌碼",
                     "PE 估值",
                     "EPS 獲利能力",
                     "殖利率",
                     "Beta 風險",
                 ],
-                "最高加分": ["+3", "+2", "+2", "+1", "+1", "+1"],
-                "最低扣分": ["-3", "-2", "-2", "-1", "-1", "-1"],
+                "最高加分": ["+2.5", "+1.5", "+1.0", "+1.8", "+0.8", "+1.5", "+0.8", "+0.8", "+0.7"],
+                "最低扣分": ["-2.5", "-1.5", "-1.2", "-1.8", "-0.8", "-1.5", "-0.8", "-0.5", "-0.7"],
                 "判斷重點": [
                     "股價、MA60、MA120 是否形成中長期多頭或空頭排列",
                     "股價是否站上年線 MA240",
+                    "BIAS60 是否顯示中期乖離過熱或仍明顯弱於季線",
+                    "近 60/120 日是否跑贏 0050",
+                    "近 20 日法人是否累計買超或賣超",
                     "本益比是否處於合理或偏高區間",
                     "EPS 是否為正且具備基本獲利能力",
                     "殖利率是否具備長期現金流吸引力",
@@ -2790,6 +3052,9 @@ if run_watchlist:
             
             info = load_ticker_info(resolved)
             full_df = calculate_indicators(raw_df)
+            full_df = add_relative_strength_indicators(full_df)
+            institutional_raw = load_institutional_trading(resolved)
+            full_df = add_institutional_indicators(full_df, institutional_raw)
             df = full_df.dropna(subset=["RSI14", "MACD_HIST"])
             if df.empty or len(df) < 20:
                 continue
@@ -2804,6 +3069,11 @@ if run_watchlist:
                     "收盤": round(last["Close"], 2),
                     "1日%": round(last["Return_1D"] * 100, 2),
                     "20日%": round(last["Return_20D"] * 100, 2),
+                    "60日%": round(safe_float(last.get("Return_60D")) * 100, 2) if is_valid_number(last.get("Return_60D")) else np.nan,
+                    "BIAS20%": round(safe_float(last.get("BIAS20")), 2) if is_valid_number(last.get("BIAS20")) else np.nan,
+                    "RS20%": round(safe_float(last.get("RS_20D")) * 100, 2) if is_valid_number(last.get("RS_20D")) else np.nan,
+                    "RPS(0050)": round(safe_float(last.get("RPS_Proxy")), 1) if is_valid_number(last.get("RPS_Proxy")) else np.nan,
+                    "法人5日佔量%": round(safe_float(last.get("Institutional_Net_Ratio_5D")), 2) if is_valid_number(last.get("Institutional_Net_Ratio_5D")) else np.nan,
                     "RSI": round(last["RSI14"], 1),
                     "量比": round(last["Volume_Ratio"], 2),
                     "PE": round(safe_float(info.get("trailingPE")), 2) if not pd.isna(safe_float(info.get("trailingPE"))) else np.nan,
@@ -2818,7 +3088,12 @@ if run_watchlist:
 
     st.subheader("觀察清單掃描結果")
     if rows:
-        watch_df = pd.DataFrame(rows).sort_values("分數", ascending=False, na_position="last") if "分數" in pd.DataFrame(rows).columns else pd.DataFrame(rows)
+        watch_df = pd.DataFrame(rows)
+        if "20日%" in watch_df.columns:
+            watch_df["清單RPS20"] = watch_df["20日%"].rank(pct=True) * 100
+        if "分數" in watch_df.columns:
+            sort_cols = [col for col in ["分數", "清單RPS20", "RPS(0050)"] if col in watch_df.columns]
+            watch_df = watch_df.sort_values(sort_cols, ascending=False, na_position="last")
         st.dataframe(watch_df, use_container_width=True, hide_index=True)
         st.download_button(
             "下載觀察清單結果 CSV",
