@@ -145,7 +145,7 @@ INDICATOR_HELP = {
     "P_to_MA120": "股價相對 MA120 的距離；用來看中長期修復位置。",
 }
 
-st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide")
+st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown(
     """
@@ -360,46 +360,6 @@ def period_to_days(years: int, months: int) -> int:
     years = max(int(years), 0)
     months = max(int(months), 0)
     return max(years * 365 + months * 30, 30)
-
-
-def sidebar_date_selector(label: str, default_date, min_year: int, max_year: int, key_prefix: str):
-    default_ts = pd.Timestamp(default_date)
-    years = list(range(max_year, min_year - 1, -1))
-    default_year = min(max(default_ts.year, min_year), max_year)
-
-    st.caption(label)
-    y_col, m_col, d_col = st.columns([1.35, 1, 1])
-    with y_col:
-        year = st.selectbox(
-            f"{label}年",
-            years,
-            index=years.index(default_year),
-            format_func=lambda value: f"{value}年",
-            key=f"{key_prefix}_year",
-            label_visibility="collapsed",
-        )
-    with m_col:
-        month = st.selectbox(
-            f"{label}月",
-            list(range(1, 13)),
-            index=default_ts.month - 1,
-            format_func=lambda value: f"{value:02d}月",
-            key=f"{key_prefix}_month",
-            label_visibility="collapsed",
-        )
-
-    max_day = pd.Period(year=year, month=month, freq="M").days_in_month
-    with d_col:
-        day = st.selectbox(
-            f"{label}日",
-            list(range(1, max_day + 1)),
-            index=min(default_ts.day, max_day) - 1,
-            format_func=lambda value: f"{value:02d}日",
-            key=f"{key_prefix}_day",
-            label_visibility="collapsed",
-        )
-
-    return pd.Timestamp(year=year, month=month, day=day).date()
 
 
 def trim_to_user_period(df: pd.DataFrame, target_start: pd.Timestamp) -> pd.DataFrame:
@@ -2237,79 +2197,88 @@ def get_tw_stock_list():
 # =========================
 # 介面
 # =========================
-header_col, settings_col = st.columns([1.05, 0.95], vertical_alignment="top")
+header_col, settings_col = st.columns([0.42, 0.58], vertical_alignment="top")
 with header_col:
     st.title("📈 台股投資分析")
     st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
 
 with settings_col:
-    settings_panel = st.container(border=True)
-with settings_panel:
-    st.markdown("#### 分析設定")
-    raw_code = st.text_input("股票", value="台積電", help="可輸入公司名稱或股票代碼")
     today = pd.Timestamp.today().date()
-    min_select_year = today.year - PRICE_HISTORY_YEARS
+    min_date = (pd.Timestamp(today) - pd.DateOffset(years=PRICE_HISTORY_YEARS)).date()
+    default_start_date = (pd.Timestamp(today) - pd.DateOffset(years=DEFAULT_ANALYSIS_YEARS)).date()
+    run_watchlist = False
+    watchlist_text = st.session_state.get("watchlist_text_input", DEFAULT_WATCHLIST)
 
-    start_box, end_box = st.columns(2)
-    with start_box:
-        start_date = sidebar_date_selector(
-            "開始日期",
-            today - pd.DateOffset(years=DEFAULT_ANALYSIS_YEARS),
-            min_select_year,
-            today.year,
-            "start_date",
+    input_col, range_col, mode_col, action_col = st.columns([1.05, 1.7, 1.2, 0.95], vertical_alignment="bottom")
+    with input_col:
+        raw_code = st.text_input("股票", value="台積電", help="可輸入公司名稱或股票代碼")
+    with range_col:
+        selected_range = st.date_input(
+            "分析區間",
+            value=(default_start_date, today),
+            min_value=min_date,
+            max_value=today,
+            format="YYYY-MM-DD",
         )
-    with end_box:
-        end_date = sidebar_date_selector(
-            "結束日期",
-            today,
-            min_select_year,
-            today.year,
-            "end_date",
-        )
+    with mode_col:
+        mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=True)
+    with action_col:
+        analyze = st.button("更新並分析", type="primary", use_container_width=True)
+
+    if isinstance(selected_range, tuple) and len(selected_range) == 2:
+        start_date, end_date = selected_range
+    else:
+        st.error("請選擇完整的開始與結束日期")
+        st.stop()
     
     if start_date >= end_date:
         st.error("開始日期必須早於結束日期")
         st.stop()
-    
-    st.caption(f"分析區間：{start_date} ～ {end_date}")
-    mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=True)
 
-    with st.expander("評分權重設定", expanded=False):
-        weight_profile = st.selectbox(
-            "權重模式",
-            list(FACTOR_WEIGHT_PRESETS.keys()) + ["自訂權重"],
-            help="權重只調整各大因子的影響力；1.0 代表使用預設分數，0 代表不採計該因子，2.0 代表加倍重視。",
-        )
-        if weight_profile == "自訂權重":
-            custom_base = st.selectbox(
-                "自訂基準",
-                list(FACTOR_WEIGHT_PRESETS.keys()),
-                help="先選一組接近自己風格的基準，再微調每個因子的權重。",
+    tools_col, watch_col, note_col = st.columns([0.85, 0.95, 2.2], vertical_alignment="center")
+    with tools_col:
+        with st.popover("權重設定"):
+            weight_profile = st.selectbox(
+                "權重模式",
+                list(FACTOR_WEIGHT_PRESETS.keys()) + ["自訂權重"],
+                help="權重只調整各大因子的影響力；1.0 代表使用預設分數，0 代表不採計該因子，2.0 代表加倍重視。",
             )
-            active_factor_weights = FACTOR_WEIGHT_PRESETS[custom_base].copy()
-            for factor in FACTOR_KEYS:
-                active_factor_weights[factor] = st.slider(
-                    factor,
-                    min_value=0.0,
-                    max_value=2.0,
-                    value=float(active_factor_weights[factor]),
-                    step=0.1,
-                    key=f"factor_weight_{factor}",
+            if weight_profile == "自訂權重":
+                custom_base = st.selectbox(
+                    "自訂基準",
+                    list(FACTOR_WEIGHT_PRESETS.keys()),
+                    help="先選一組接近自己風格的基準，再微調每個因子的權重。",
                 )
-        else:
-            active_factor_weights = FACTOR_WEIGHT_PRESETS[weight_profile].copy()
+                active_factor_weights = FACTOR_WEIGHT_PRESETS[custom_base].copy()
+                for factor in FACTOR_KEYS:
+                    active_factor_weights[factor] = st.slider(
+                        factor,
+                        min_value=0.0,
+                        max_value=2.0,
+                        value=float(active_factor_weights[factor]),
+                        step=0.1,
+                        key=f"factor_weight_{factor}",
+                    )
+            else:
+                active_factor_weights = FACTOR_WEIGHT_PRESETS[weight_profile].copy()
 
-        if weights_are_default(active_factor_weights):
-            st.caption("目前使用預設權重，分數可直接與其他股票比較。")
-        else:
-            st.caption("目前使用自訂/風格化權重；排序會更貼近你的偏好，但仍建議同時參考預設分數。")
+            if weights_are_default(active_factor_weights):
+                st.caption("目前使用預設權重，分數可直接與其他股票比較。")
+            else:
+                st.caption("目前使用自訂/風格化權重；排序會更貼近你的偏好，但仍建議同時參考預設分數。")
 
-    analyze = st.button("更新並分析", type="primary", use_container_width=True)
-    with st.expander("觀察清單掃描", expanded=False):
-        watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
-        run_watchlist = st.button("掃描觀察清單", use_container_width=True)
-        st.caption("可輸入多檔股票製作觀察清單")
+    with watch_col:
+        with st.popover("觀察清單"):
+            watchlist_text = st.text_area(
+                "觀察清單",
+                value=watchlist_text,
+                height=100,
+                key="watchlist_text_input",
+            )
+            run_watchlist = st.button("掃描觀察清單", use_container_width=True)
+            st.caption("可輸入多檔股票製作觀察清單")
+    with note_col:
+        st.caption(f"{start_date} ～ {end_date}｜技術圖表可往前查看近 {CHART_HISTORY_YEARS} 年")
 
 # 預設初次也分析，避免使用者打開空白頁
 if not analyze and not run_watchlist:
