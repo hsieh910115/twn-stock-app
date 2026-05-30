@@ -150,7 +150,7 @@ st.set_page_config(page_title=APP_TITLE, page_icon="📈", layout="wide", initia
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
+    .block-container {padding-top: 3rem; padding-bottom: 2rem;}
     .metric-card {background: #ffffff; padding: 1rem; border-radius: 1rem; border: 1px solid #eeeeee;}
     .small-note {font-size: 0.85rem; color: #666666;}
     .risk-box {padding: 1rem; border-radius: 1rem; border: 1px solid #eeeeee; background: #fafafa;}
