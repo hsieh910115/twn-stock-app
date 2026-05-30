@@ -27,8 +27,9 @@ import urllib3
 APP_TITLE = "台股投資分析"
 DEFAULT_WATCHLIST = "台積電\n聯發科"
 MARKET_PROXY_TICKER = "0050"
-DEFAULT_ANALYSIS_YEARS = 5
-PRICE_HISTORY_YEARS = DEFAULT_ANALYSIS_YEARS + 1
+DEFAULT_ANALYSIS_YEARS = 1
+CHART_HISTORY_YEARS = 5
+PRICE_HISTORY_YEARS = CHART_HISTORY_YEARS + 1
 INSTITUTIONAL_COLUMNS = [
     "Foreign_Net",
     "Investment_Trust_Net",
@@ -1523,7 +1524,12 @@ def _opt_stats(bt: Dict) -> Dict:
         "交易次數": bt["trades"],
     }
 
-def make_price_chart(df: pd.DataFrame, rows: Optional[int] = None, close_overlay: pd.Series = None):
+def make_price_chart(
+    df: pd.DataFrame,
+    rows: Optional[int] = None,
+    close_overlay: pd.Series = None,
+    initial_range: Optional[Tuple[pd.Timestamp, pd.Timestamp]] = None,
+):
     """專業 K 線圖：台股紅漲綠跌、疊加 MA、布林通道、成交量與 MACD 副圖。"""
     plot_df = df.tail(rows).copy() if rows else df.copy()
     plot = plot_df.reset_index()
@@ -1761,6 +1767,8 @@ def make_price_chart(df: pd.DataFrame, rows: Optional[int] = None, close_overlay
         linewidth=1,
         linecolor="rgba(0,0,0,0.15)",
     )
+    if initial_range:
+        fig.update_xaxes(range=list(initial_range))
 
     return fig
 
@@ -2284,6 +2292,8 @@ if analyze:
             institutional_raw = load_institutional_trading(resolved_ticker)
             full_df = add_institutional_indicators(full_df, institutional_raw)
             visible_df = full_df[(full_df.index >= start_ts) & (full_df.index <= end_ts)].copy()
+            chart_start_ts = min(start_ts, end_ts - pd.DateOffset(years=CHART_HISTORY_YEARS))
+            chart_df = full_df[(full_df.index >= chart_start_ts) & (full_df.index <= end_ts)].copy()
 
             if visible_df.empty:
                 st.error(f"在 {start_date} 到 {end_date} 期間內無法取得資料，請檢查日期範圍或股票代碼。")
@@ -2418,7 +2428,14 @@ if analyze:
             st.dataframe(levels, hide_index=True, use_container_width=True)
 
         with tab2:
-            st.plotly_chart(make_price_chart(df, close_overlay=full_df["Close"]), use_container_width=True)
+            st.plotly_chart(
+                make_price_chart(
+                    chart_df,
+                    close_overlay=full_df["Close"],
+                    initial_range=(start_ts, end_ts),
+                ),
+                use_container_width=True,
+            )
             st.markdown("#### 指標明細")
             indicator_cols = [
                 "Close", "Volume", "MA5", "MA20", "MA60", "MA120", "MA240",
