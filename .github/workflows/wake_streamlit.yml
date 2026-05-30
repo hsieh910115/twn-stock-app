@@ -1,0 +1,32 @@
+name: Wake Streamlit App
+
+on:
+  schedule:
+    # Every 6 hours. GitHub Actions cron is UTC:
+    # 00:00/06:00/12:00/18:00 UTC = 08:00/14:00/20:00/02:00 Taiwan time.
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wake-streamlit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      APP_URL: ${{ vars.STREAMLIT_APP_URL || secrets.STREAMLIT_APP_URL }}
+
+    steps:
+      - name: Check app URL
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "::error::Set STREAMLIT_APP_URL as a repository variable or secret, for example https://twn-stock-app.streamlit.app"
+            exit 1
+          fi
+
+      - name: Wake Streamlit app
+        run: |
+          echo "Sending wake request to Streamlit app..."
+          curl --fail --show-error --location --max-time 60 --retry 3 --retry-delay 15 "$APP_URL" > /dev/null
+          echo "Wake request completed."
