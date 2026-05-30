@@ -2237,37 +2237,43 @@ def get_tw_stock_list():
 # =========================
 # 介面
 # =========================
-st.title("📈 台股投資分析")
-st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
-with st.sidebar:
-    st.header("股票設定")
+header_col, settings_col = st.columns([1.05, 0.95], vertical_alignment="top")
+with header_col:
+    st.title("📈 台股投資分析")
+    st.caption("免責聲明：本平台僅供學習與研究參考，請自行判斷並注意投資風險。")
+
+with settings_col:
+    settings_panel = st.container(border=True)
+with settings_panel:
+    st.markdown("#### 分析設定")
     raw_code = st.text_input("股票", value="台積電", help="可輸入公司名稱或股票代碼")
-    
-    st.subheader("資料區間設定")
     today = pd.Timestamp.today().date()
     min_select_year = today.year - PRICE_HISTORY_YEARS
 
-    start_date = sidebar_date_selector(
-        "開始日期",
-        today - pd.DateOffset(years=DEFAULT_ANALYSIS_YEARS),
-        min_select_year,
-        today.year,
-        "start_date",
-    )
-    end_date = sidebar_date_selector(
-        "結束日期",
-        today,
-        min_select_year,
-        today.year,
-        "end_date",
-    )
+    start_box, end_box = st.columns(2)
+    with start_box:
+        start_date = sidebar_date_selector(
+            "開始日期",
+            today - pd.DateOffset(years=DEFAULT_ANALYSIS_YEARS),
+            min_select_year,
+            today.year,
+            "start_date",
+        )
+    with end_box:
+        end_date = sidebar_date_selector(
+            "結束日期",
+            today,
+            min_select_year,
+            today.year,
+            "end_date",
+        )
     
     if start_date >= end_date:
         st.error("開始日期必須早於結束日期")
         st.stop()
     
     st.caption(f"分析區間：{start_date} ～ {end_date}")
-    mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=False)
+    mode = st.radio("操作模式", ["短線／波段", "長線／存股"], horizontal=True)
 
     with st.expander("評分權重設定", expanded=False):
         weight_profile = st.selectbox(
@@ -2300,10 +2306,10 @@ with st.sidebar:
             st.caption("目前使用自訂/風格化權重；排序會更貼近你的偏好，但仍建議同時參考預設分數。")
 
     analyze = st.button("更新並分析", type="primary", use_container_width=True)
-    st.divider()
-    watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
-    run_watchlist = st.button("掃描觀察清單", use_container_width=True)
-    st.caption("可輸入多檔股票製作觀察清單")
+    with st.expander("觀察清單掃描", expanded=False):
+        watchlist_text = st.text_area("觀察清單", value=DEFAULT_WATCHLIST, height=100)
+        run_watchlist = st.button("掃描觀察清單", use_container_width=True)
+        st.caption("可輸入多檔股票製作觀察清單")
 
 # 預設初次也分析，避免使用者打開空白頁
 if not analyze and not run_watchlist:
