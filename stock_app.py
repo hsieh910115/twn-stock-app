@@ -362,6 +362,46 @@ def period_to_days(years: int, months: int) -> int:
     return max(years * 365 + months * 30, 30)
 
 
+def sidebar_date_selector(label: str, default_date, min_year: int, max_year: int, key_prefix: str):
+    default_ts = pd.Timestamp(default_date)
+    years = list(range(max_year, min_year - 1, -1))
+    default_year = min(max(default_ts.year, min_year), max_year)
+
+    st.caption(label)
+    y_col, m_col, d_col = st.columns([1.35, 1, 1])
+    with y_col:
+        year = st.selectbox(
+            f"{label}年",
+            years,
+            index=years.index(default_year),
+            format_func=lambda value: f"{value}年",
+            key=f"{key_prefix}_year",
+            label_visibility="collapsed",
+        )
+    with m_col:
+        month = st.selectbox(
+            f"{label}月",
+            list(range(1, 13)),
+            index=default_ts.month - 1,
+            format_func=lambda value: f"{value:02d}月",
+            key=f"{key_prefix}_month",
+            label_visibility="collapsed",
+        )
+
+    max_day = pd.Period(year=year, month=month, freq="M").days_in_month
+    with d_col:
+        day = st.selectbox(
+            f"{label}日",
+            list(range(1, max_day + 1)),
+            index=min(default_ts.day, max_day) - 1,
+            format_func=lambda value: f"{value:02d}日",
+            key=f"{key_prefix}_day",
+            label_visibility="collapsed",
+        )
+
+    return pd.Timestamp(year=year, month=month, day=day).date()
+
+
 def trim_to_user_period(df: pd.DataFrame, target_start: pd.Timestamp) -> pd.DataFrame:
     """指標計算完後，切回使用者指定的分析期間。若 target_start 非交易日，自動取最近交易日。"""
     past_dates = df.index[df.index <= target_start]
@@ -2205,20 +2245,22 @@ with st.sidebar:
     
     st.subheader("資料區間設定")
     today = pd.Timestamp.today().date()
-    
-    col_start, col_end = st.columns(2)
-    with col_start:
-        start_date = st.date_input(
-            "開始日期",
-            value=today - pd.DateOffset(years=DEFAULT_ANALYSIS_YEARS),
-            format="YYYY-MM-DD"
-        )
-    with col_end:
-        end_date = st.date_input(
-            "結束日期",
-            value=today,
-            format="YYYY-MM-DD"
-        )
+    min_select_year = today.year - PRICE_HISTORY_YEARS
+
+    start_date = sidebar_date_selector(
+        "開始日期",
+        today - pd.DateOffset(years=DEFAULT_ANALYSIS_YEARS),
+        min_select_year,
+        today.year,
+        "start_date",
+    )
+    end_date = sidebar_date_selector(
+        "結束日期",
+        today,
+        min_select_year,
+        today.year,
+        "end_date",
+    )
     
     if start_date >= end_date:
         st.error("開始日期必須早於結束日期")
