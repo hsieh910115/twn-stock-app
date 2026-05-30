@@ -27,6 +27,8 @@ import urllib3
 APP_TITLE = "台股投資分析"
 DEFAULT_WATCHLIST = "台積電\n聯發科"
 MARKET_PROXY_TICKER = "0050"
+DEFAULT_ANALYSIS_YEARS = 5
+PRICE_HISTORY_YEARS = DEFAULT_ANALYSIS_YEARS + 1
 INSTITUTIONAL_COLUMNS = [
     "Foreign_Net",
     "Investment_Trust_Net",
@@ -297,7 +299,7 @@ def load_price_data(ticker_symbol: str) -> Tuple[pd.DataFrame, str]:
     """使用 FinMind 抓取台股日 OHLCV。一律抓較長區間，切換分析期間時最新日固定。"""
     stock_id = normalize_tw_ticker(ticker_symbol)
     end_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=365 * 5 + 10)).strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=365 * PRICE_HISTORY_YEARS + 10)).strftime("%Y-%m-%d")
 
     if stock_id == "TAIEX":
         idx = finmind_request(
@@ -1521,9 +1523,10 @@ def _opt_stats(bt: Dict) -> Dict:
         "交易次數": bt["trades"],
     }
 
-def make_price_chart(df: pd.DataFrame, rows: int = 260, close_overlay: pd.Series = None):
+def make_price_chart(df: pd.DataFrame, rows: Optional[int] = None, close_overlay: pd.Series = None):
     """專業 K 線圖：台股紅漲綠跌、疊加 MA、布林通道、成交量與 MACD 副圖。"""
-    plot = df.tail(rows).copy().reset_index()
+    plot_df = df.tail(rows).copy() if rows else df.copy()
+    plot = plot_df.reset_index()
     date_col = plot.columns[0]
     plot = plot.rename(columns={date_col: "日期"})
 
@@ -2199,7 +2202,7 @@ with st.sidebar:
     with col_start:
         start_date = st.date_input(
             "開始日期",
-            value=today - pd.DateOffset(years=1),
+            value=today - pd.DateOffset(years=DEFAULT_ANALYSIS_YEARS),
             format="YYYY-MM-DD"
         )
     with col_end:
@@ -2260,37 +2263,36 @@ if analyze:
     ticker_input = resolve_stock_input(raw_code)
     try:
         with st.spinner("正在取得最新股價與財務資料..."):
-            # 1. 抓取原始資料 (使用用戶指定的日期範圍)
+            # 1. 先抓較長歷史，讓長週期均線與動能指標有足夠暖身資料。
             raw_df, resolved_ticker = load_price_data(ticker_input)
             
-            # 2. 按照用戶選擇的日期範圍裁切
-            # 轉換 start_date 和 end_date 為 Timestamp
+            # 2. 轉換使用者選擇的顯示區間。
             start_ts = pd.Timestamp(start_date)
             end_ts = pd.Timestamp(end_date)
-            
-            # 裁切到用戶指定的範圍
-            raw_df = raw_df[(raw_df.index >= start_ts) & (raw_df.index <= end_ts)].copy()
-            
+
             if raw_df.empty:
-                st.error(f"在 {start_date} 到 {end_date} 期間內無法取得資料，請檢查日期範圍或股票代碼。")
+                st.error(f"無法取得 {ticker_input} 股價資料，請檢查股票代碼。")
                 st.stop()
 
             info = load_ticker_info(resolved_ticker)
             fast_info = load_fast_info(resolved_ticker)
             stmt = load_financials(resolved_ticker)
             
-            # 3. 計算指標
+            # 3. 用完整歷史計算指標後，再裁切到使用者指定的顯示區間。
             full_df = calculate_indicators(raw_df)
             full_df = add_relative_strength_indicators(full_df)
             institutional_raw = load_institutional_trading(resolved_ticker)
             full_df = add_institutional_indicators(full_df, institutional_raw)
+            visible_df = full_df[(full_df.index >= start_ts) & (full_df.index <= end_ts)].copy()
+
+            if visible_df.empty:
+                st.error(f"在 {start_date} 到 {end_date} 期間內無法取得資料，請檢查日期範圍或股票代碼。")
+                st.stop()
             
-            # 4. 使用完整計算後的資料
-            df = full_df.dropna(
+            # 4. 使用裁切後資料進行畫圖、評分與表格顯示。
+            df = visible_df.dropna(
                 subset=["Close", "RSI14", "MACD_HIST"]
             )
-            last_raw = full_df.iloc[-1]   # 最新一天（含今天未收盤完整資料）
-            prev_raw = full_df.iloc[-2]   # 前一天
             
         if df.empty or len(df) < 20:
             st.error("資料量不足，無法計算完整指標。請增加月份、改用更長期間，或確認股票代碼。")
@@ -2298,10 +2300,10 @@ if analyze:
         if len(df) < 60:
             st.warning("目前分析期間較短，部分長週期指標與回測結果會比較不穩定；若要看中長期策略，建議至少 1 年以上。")
 
-        last = last_raw
-        prev = prev_raw
-        latest_date = full_df.index[-1].strftime("%Y-%m-%d")
-        stale_days = (datetime.now() - full_df.index[-1]).days
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
+        latest_date = df.index[-1].strftime("%Y-%m-%d")
+        stale_days = (datetime.now() - df.index[-1]).days
         company_name = info.get("longName") or info.get("shortName") or display_code(resolved_ticker)
 
         st.subheader(f"{company_name}（{resolved_ticker}）")
@@ -3334,10 +3336,8 @@ if run_watchlist:
         try:
             raw_df, resolved = load_price_data(resolve_stock_input(code))
             
-            # 按用戶指定的日期範圍裁切
             start_ts = pd.Timestamp(start_date)
             end_ts = pd.Timestamp(end_date)
-            raw_df = raw_df[(raw_df.index >= start_ts) & (raw_df.index <= end_ts)].copy()
             
             if raw_df.empty:
                 continue
@@ -3347,7 +3347,8 @@ if run_watchlist:
             full_df = add_relative_strength_indicators(full_df)
             institutional_raw = load_institutional_trading(resolved)
             full_df = add_institutional_indicators(full_df, institutional_raw)
-            df = full_df.dropna(subset=["RSI14", "MACD_HIST"])
+            visible_df = full_df[(full_df.index >= start_ts) & (full_df.index <= end_ts)].copy()
+            df = visible_df.dropna(subset=["RSI14", "MACD_HIST"])
             if df.empty or len(df) < 20:
                 continue
             last = df.iloc[-1]
