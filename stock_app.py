@@ -2338,7 +2338,7 @@ if analyze:
         else:
             render_score_status(score, "綜合評分")
             
-        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
+        c1, c2, c3, c4, c5 = st.columns(5)
         price_change = safe_float(last["Close"] - prev["Close"])
         price_change_pct = safe_float(last["Return_1D"] * 100)
         if price_change >= 0:
@@ -2356,10 +2356,7 @@ if analyze:
         metric_with_help(c2, "RSI14", format_number(last["RSI14"], 1))
         metric_with_help(c3, "MACD柱", format_number(last["MACD_HIST"], 2))
         metric_with_help(c4, "20日量比", format_number(last["Volume_Ratio"], 2))
-        metric_with_help(c5, "BIAS20", format_number(last.get("BIAS20"), 1, "%"))
-        metric_with_help(c6, "RPS(0050)", format_number(last.get("RPS_Proxy"), 1))
-        metric_with_help(c7, "法人5日佔量", format_number(last.get("Institutional_Net_Ratio_5D"), 1, "%"))
-        metric_with_help(c8, "目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
+        metric_with_help(c5, "目前回撤", format_number(last["Drawdown"] * 100, 1, "%"))
 
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
             ["總覽", "技術圖表", "基本面", "籌碼強弱", "歷史回測", "策略執行", "模式差異", "AI妖股選股","AI潛力股選股"]
