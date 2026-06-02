@@ -2,9 +2,9 @@ name: Wake Streamlit App
 
 on:
   schedule:
-    # Every 6 hours. GitHub Actions cron is UTC:
-    # 00:00/06:00/12:00/18:00 UTC = 08:00/14:00/20:00/02:00 Taiwan time.
-    - cron: "0 */6 * * *"
+    # Every 4 hours. GitHub Actions cron is UTC:
+    # 00:00/04:00/08:00/12:00/16:00/20:00 UTC = 08:00/12:00/16:00/20:00/00:00/04:00 Taiwan time.
+    - cron: "0 */4 * * *"
   workflow_dispatch:
 
 permissions:
